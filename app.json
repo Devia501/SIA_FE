@@ -1,0 +1,7 @@
+{
+  "name": "SIAkademik",
+  "displayName": "SIAkademik",
+  "android": {
+    "package": "com.anonymous.siakademik"
+  }
+}

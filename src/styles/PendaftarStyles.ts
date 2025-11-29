@@ -1,0 +1,351 @@
+import { StyleSheet } from 'react-native';
+
+const PendaftarStyles = StyleSheet.create({
+
+container: {
+flex: 1,
+backgroundColor: '#015023',
+},
+
+headerContainer: {
+height: 90,
+},
+waveBackground: {
+width: '100%',
+height: '100%',
+},
+headerContent: {
+flexDirection: 'row',
+alignItems: 'center',
+justifyContent: 'space-between',
+paddingHorizontal: 20,
+paddingTop: 20,
+},
+menuButton: {
+width: 36,
+height: 36,
+justifyContent: 'center',
+alignItems: 'center',
+},
+menuIcon: {
+fontSize: 22,
+color: '#000',
+},
+
+notification:{
+
+},
+
+userInfo: {
+flexDirection: 'row',
+alignItems: 'center',
+flex: 1,
+justifyContent: 'center',
+},
+avatar: {
+width: 44,
+height: 42,
+borderRadius: 24,
+backgroundColor: '#FFF',
+justifyContent: 'center',
+alignItems: 'center',
+borderWidth: 2,
+borderColor: '#015023',
+marginRight: 10,
+},
+avatarText: {
+fontSize: 16,
+fontWeight: 'bold',
+color: '#015023',
+},
+userTextContainer: {
+marginRight: 20,
+},
+userName: {
+fontSize: 16,
+fontWeight: 'bold',
+color: '#015023',
+textShadowColor: '#5d5d5dff',
+textShadowOffset: { width: 0, height: 1 },
+textShadowRadius: 6,
+},
+userRole: {
+fontSize: 11,
+color: '#ffffffff',
+marginTop: 2,
+textShadowColor: '#015023',
+textShadowOffset: { width: 1, height: 1 },
+textShadowRadius: 2,
+},
+notifButton: {
+width: 36,
+height: 36,
+justifyContent: 'center',
+alignItems: 'center',
+},
+notifIcon: {
+fontSize: 22,
+},
+
+content: {
+paddingHorizontal: 20,
+marginTop: 24,
+},
+
+quickActions: {
+flexDirection: 'row',
+justifyContent: 'space-between',
+marginBottom: 32,
+gap: 12,
+},
+actionButton: {
+flexDirection: 'row',
+alignItems: 'center',
+backgroundColor: '#F5E6D3',
+borderRadius: 20,
+paddingVertical: 16,
+paddingHorizontal: 16,
+flex: 1,
+shadowColor: '#000',
+shadowOpacity: 0.1,
+shadowOffset: { width: 0, height: 2 },
+shadowRadius: 4,
+elevation: 3,
+gap: 10,
+},
+actionIcon: {
+width: 24,
+height: 24,
+},
+actionTitle: {
+fontSize: 13,
+fontWeight: '600',
+color: '#000',
+},
+actionSubtitle: {
+fontSize: 11,
+color: '#000',
+},
+
+registerButton: {
+borderRadius: 30,
+paddingVertical: 16,
+justifyContent: 'center',
+alignSelf: 'center', 
+width: '80%',
+borderWidth: 4,
+borderColor: '#DABC4E',
+alignItems: 'center',
+marginBottom: 40,
+shadowColor: '#000',
+shadowOpacity: 0.15,
+shadowOffset: { width: 0, height: 3 },
+shadowRadius: 6,
+elevation: 4,
+},
+registerButtonText: {
+fontSize: 15,
+fontWeight: 'bold',
+color: '#000',
+},
+
+newsSection: {
+marginBottom: 100,
+},
+newsTitle: {
+fontSize: 13,
+fontWeight: 'bold',
+color: '#000',
+left: 16,
+top: 6,
+marginBottom: 30,
+},
+newsCard: {
+backgroundColor: '#F5E6D3',
+borderRadius: 20,
+padding: 15,
+borderWidth: 2,
+borderColor: '#DABC4E',
+shadowColor: '#000',
+shadowOpacity: 0.08,
+shadowOffset: { width: 0, height: 2 },
+shadowRadius: 4,
+elevation: 2,
+},
+newsCard2: {
+backgroundColor: '#fddaacff',
+borderRadius: 10,
+padding: 20,
+marginBottom: 25,
+},
+newsCardTitle: {
+fontSize: 13,
+fontWeight: 'bold',
+color: '#000',
+marginBottom: 25,
+textAlign: 'center',
+},
+newsCardContent: {
+backgroundColor: '#189653',
+borderWidth: 1,
+borderColor: '#000',
+borderRadius: 18,
+paddingVertical: 6,
+paddingHorizontal: 14,
+marginBottom: 25,
+},
+newsCardText: {
+fontSize: 11,
+color: '#FFFFFF',
+textAlign: 'center',
+fontWeight: '500',
+},
+
+pagination: {
+flexDirection: 'row',
+justifyContent: 'center',
+alignItems: 'center',
+marginTop: 16,
+marginBottom: 25,
+gap: 6,
+},
+dot: {
+width: 10,
+height: 10,
+borderRadius: 5,
+backgroundColor: '#F5EFD3',
+opacity: 0.5,
+},
+dot1: {
+width: 6,
+height: 6,
+borderRadius: 3,
+backgroundColor: '#F5EFD3',
+opacity: 0.5,
+},
+dotActive: {
+borderWidth: 1,
+borderColor: '#000',
+width: 70,
+height: 10,
+borderRadius: 10,
+backgroundColor: '#DABC4E',
+opacity: 1,
+},
+
+bottomNav: {
+position: 'absolute',
+borderWidth: 4,
+borderColor: '#DABC4E',
+bottom: 20,
+left: 20,
+right: 20,
+flexDirection: 'row',
+justifyContent: 'space-around',
+alignItems: 'center',
+backgroundColor: '#FFF',
+borderRadius: 25,
+paddingVertical: 6,
+paddingHorizontal: 16,
+shadowColor: '#000',
+shadowOffset: { width: 0, height: 4 },
+shadowOpacity: 0.2,
+shadowRadius: 8,
+elevation: 8,
+},
+navItem: {
+alignItems: 'center',
+left: 6,
+flex: 1,
+},
+navItemActive: {
+flexDirection: 'row',
+alignItems: 'center',
+borderWidth: 1,
+borderColor: '#000',
+backgroundColor: '#F5E6D3',
+borderRadius: 20,
+paddingHorizontal: 14,
+paddingVertical: 7,
+justifyContent: 'center',
+gap: 2,
+},
+navIcon: {
+fontSize: 22,
+},
+navIconImage: {
+width: 24,
+height: 24,
+},
+navText: {
+fontSize: 11,
+color: '#666',
+marginTop: 3,
+},
+navTextActive: {
+fontSize: 12,
+fontWeight: 'bold',
+color: '#000',
+},
+
+backgroundLogo: {
+position: 'absolute',
+bottom: -350,
+alignSelf: 'center',
+width: 950,
+height: 950,
+opacity: 0.15,
+zIndex: -1
+},
+
+  headerContentV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backIcon: {
+    fontSize: 28,
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  headerTitleContainerV2: {
+    flex: 1,
+    alignItems: 'center',
+    right: 14,
+  },
+  headerTitleContainerV3: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerTitleV2: {
+    fontSize: 15,
+    alignItems: 'center',
+    fontWeight: 'bold',
+    textShadowColor: 'black',
+    textShadowOffset: { width: 1, height: 2 },
+    textShadowRadius: 1,
+    color: '#FFF',
+    backgroundColor: '#DABC4E',
+    paddingHorizontal: 28,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  headerTitleV3: {
+    top: 20,
+    fontSize: 20,
+    alignItems: 'center',
+    fontWeight: 'bold',
+    color: '#015023',
+  },
+});
+
+export default PendaftarStyles;
