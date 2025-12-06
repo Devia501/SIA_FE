@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -17,8 +18,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
+
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationService } from '../../services/notificationService';
+
+// 🔑 IMPORT SERVICE & TYPE
+import { registrationService, Profile, Document } from '../../services/apiService'; 
 
 const { width } = Dimensions.get('window');
 
@@ -31,22 +36,68 @@ const DashboardScreen = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const slideAnim = useState(new Animated.Value(-width * 0.7))[0];
+  
+  // State untuk status pendaftar
+  const [registrationStatus, setRegistrationStatus] = useState<'draft' | 'submitted' | 'approved' | 'rejected' | null>(null); 
+  
+  // 🔑 STATE BARU: Penanda apakah sudah ada dokumen yang direview
+  const [hasDocumentFeedback, setHasDocumentFeedback] = useState(false);
+  
+  const [isStatusLoading, setIsStatusLoading] = useState(true);
 
-  // Load unread count
   useEffect(() => {
     loadUnreadCount();
+    loadRegistrationStatus(); 
     
-    // Refresh every 30 seconds
-    const interval = setInterval(loadUnreadCount, 30000);
+    const interval = setInterval(() => {
+        loadUnreadCount();
+        loadRegistrationStatus();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // 🔑 LOGIKA LOAD STATUS & DOKUMEN
+  const loadRegistrationStatus = async () => {
+      try {
+          // 1. Ambil Profile untuk status utama
+          const profile: Profile = await registrationService.getProfile();
+          
+          if (profile && profile.registration_status) {
+             setRegistrationStatus(profile.registration_status);
+
+             // 2. 🔑 CEK DOKUMEN: Jika status masih 'submitted', kita cek detail dokumennya
+             if (profile.registration_status === 'submitted') {
+                 const docs: Document[] = await registrationService.getDocuments();
+                 
+                 // Cek apakah ada dokumen yang statusnya SUDAH BUKAN pending
+                 const feedbackExists = docs.some(d => 
+                     d.verification_status === 'approved' || d.verification_status === 'rejected'
+                 );
+                 
+                 setHasDocumentFeedback(feedbackExists);
+             } else {
+                 setHasDocumentFeedback(false);
+             }
+
+          } else {
+             setRegistrationStatus('draft');
+          }
+      } catch (e: any) {
+          console.log("Status Load Info:", e.message); 
+          setRegistrationStatus(null); 
+      } finally {
+          setIsStatusLoading(false);
+      }
+  };
 
   const loadUnreadCount = async () => {
     try {
       const response = await notificationService.getUnreadCount();
+      // @ts-ignore
       setUnreadCount(response.data.unread_count);
     } catch (error) {
       console.error('Error loading unread count:', error);
+      setUnreadCount(0);
     }
   };
 
@@ -88,10 +139,50 @@ const DashboardScreen = () => {
       }, 300);
     }
   };
+  
+  // 🔑 LOGIKA NAVIGASI YANG DIPERBARUI
+  const handleStatusNavigation = () => {
+      if (isStatusLoading) return;
+
+      console.log("Status:", registrationStatus, "Has Feedback:", hasDocumentFeedback); 
+
+      // 1. Belum daftar
+      if (!registrationStatus || registrationStatus === 'draft') {
+        navigation.navigate('StatusPendaftaranAwal');
+        return;
+      }
+
+      // 2. Status 'submitted' (Pending)
+      if (registrationStatus === 'submitted') {
+        // 🔑 LOGIKA BARU: 
+        // Jika sudah ada feedback dokumen (meski status profil masih submitted),
+        // Arahkan ke StatusPendaftaranProses
+        if (hasDocumentFeedback) {
+            navigation.navigate('StatusPendaftaranProses' as any);
+        } else {
+            // Jika belum ada feedback sama sekali, ke TungguKonfirmasi
+            navigation.navigate('TungguKonfirmasi' as any);
+        }
+        return;
+      }
+
+      // 3. Status 'reviewed' (Sedang Diproses Resmi)
+      if (registrationStatus === 'reviewed' as any) { 
+        navigation.navigate('StatusPendaftaranProses' as any);
+        return;
+      }
+
+      // 4. Keputusan Final
+      if (registrationStatus === 'approved' || registrationStatus === 'rejected') {
+        navigation.navigate('StatusPendaftaranDone' as any);
+        return;
+      }
+      
+      navigation.navigate('StatusPendaftaranAwal');
+  };
 
   const handleNotificationPress = () => {
-    console.log('🔔 Notification button pressed');
-    // @ts-ignore - Navigate to NotificationsScreen
+    // @ts-ignore
     navigation.navigate('Notifications');
   };
   
@@ -164,7 +255,7 @@ const DashboardScreen = () => {
 
             <TouchableOpacity 
             style={PendaftarStyles.actionButton}
-            onPress={() => navigation.navigate('InformasiPenting')}
+            onPress={() => navigation.navigate('InformasiPenting' as any)}
             >
               <Image
                   source={require('../../assets/icons/material-symbols_info.png')}
@@ -236,16 +327,21 @@ const DashboardScreen = () => {
           </TouchableOpacity>
 
           <TouchableOpacity style={PendaftarStyles.navItem}
-          onPress={() => navigation.navigate('StatusPendaftaranAwal')}>
-            <Image
-                  source={require('../../assets/icons/fluent_shifts-activity.png')}
-                  style={PendaftarStyles.navIconImage}
-                  resizeMode="contain"
+          onPress={handleStatusNavigation}
+          disabled={isStatusLoading}>
+            {isStatusLoading ? (
+                <ActivityIndicator size="small" color="#000" />
+            ) : (
+                <Image
+                    source={require('../../assets/icons/fluent_shifts-activity.png')}
+                    style={PendaftarStyles.navIconImage}
+                    resizeMode="contain"
                 />
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={PendaftarStyles.navItem}
-          onPress={() => navigation.navigate('Profile')}>
+          onPress={() => navigation.navigate('Profile' as any)}>
             <Image
                   source={require('../../assets/icons/ix_user-profile-filled.png')}
                   style={PendaftarStyles.navIconImage}
@@ -275,7 +371,6 @@ const DashboardScreen = () => {
             ]}
           >
             <View style={styles.drawerContent}>
-
               <TouchableOpacity 
                 style={styles.menuButton}
                 onPress={() => handleMenuItemPress('PendaftarDashboard')}
@@ -312,19 +407,27 @@ const DashboardScreen = () => {
 
               <TouchableOpacity 
                 style={styles.menuItem}
-                onPress={() => handleMenuItemPress('StatusPendaftaranAwal')}
+                onPress={() => {
+                    toggleDrawer(); 
+                    setTimeout(handleStatusNavigation, 300);
+                }}
+                disabled={isStatusLoading}
               >
-                <Image
-                  source={require('../../assets/icons/fluent_shifts-activity.png')}
-                  style={styles.menuIcon}
-                  resizeMode="contain"
-                />
+                {isStatusLoading ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                    <Image
+                        source={require('../../assets/icons/fluent_shifts-activity.png')}
+                        style={styles.menuIcon}
+                        resizeMode="contain"
+                    />
+                )}
                 <Text style={styles.menuText}>Status Pendaftaran</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
                 style={styles.menuItem}
-                onPress={() => handleMenuItemPress('Profile')}
+                onPress={() => handleMenuItemPress('Profile' as any)}
               >
                 <Image
                   source={require('../../assets/icons/ix_user-profile-filled.png')}

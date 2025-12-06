@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,7 @@ import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useAuth } from '../../contexts/AuthContext';
-import { authService } from '../../services/authService'; // 🆕 Import authService
+import { authService } from '../../services/authService';
 
 const DEFAULT_AVATAR_PATH = require('../../assets/images/profile 1.png');
 
@@ -32,27 +32,76 @@ type ProfileScreenNavigationProp = NativeStackNavigationProp<
   'Profile'
 >;
 
+// 🔑 LOGIKA STATUS DARI DASHBOARD (SIMULASI API)
+interface Profile {
+  registration_status?: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
+}
+type RegistrationStatus = Profile['registration_status'];
+
+const registrationService = {
+  // Mock function: Ganti dengan implementasi API yang sebenarnya dari file apiService Anda
+  getProfile: async (): Promise<Profile> => {
+    // Simulasi status belum mendaftar (kosongan)
+    throw new Error('404'); // <--- GANTI INI: Simulasi status 'kosongan'
+    // return { registration_status: 'submitted' }; 
+  }
+};
+// END LOGIKA STATUS MOCK
+
 const ProfileScreen = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
-  const { user, logout, setUser } = useAuth(); // 🆕 Tambah setUser untuk update context
+  const { user, logout, setUser } = useAuth();
   const userName = user?.name || 'Calon Mahasiswa';
   const userEmail = user?.email || '';
 
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   
-  // State untuk Change Email
   const [newEmail, setNewEmail] = useState('');
   const [emailPassword, setEmailPassword] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(false);
   
-  // State untuk Change Password
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [loadingPassword, setLoadingPassword] = useState(false);
   
   const [profilePhoto, setProfilePhoto] = useState(DEFAULT_AVATAR_PATH); 
+  
+  // 🔑 STATUS STATE BARU
+  const [isStatusLoading, setIsStatusLoading] = useState(false);
+
+  // 泊 FUNGSI NAVIGASI STATUS DINAMIS
+  const handleStatusNavigation = useCallback(async () => {
+    setIsStatusLoading(true);
+    try {
+        const profile = await registrationService.getProfile();
+        const status = profile.registration_status;
+  
+    if (!status) { 
+        navigation.navigate('StatusPendaftaranAwal' as any);
+    } else if (status === 'submitted') {
+        navigation.navigate('TungguKonfirmasi' as any);
+    } else {
+        navigation.navigate('StatusPendaftaranDone' as any);
+    }
+    } catch (e: any) { // Pastikan tipe e adalah any
+        
+        // ✅ PERUBAHAN INTI: Cek jika pesan error mengandung '404'
+        const isExpectedError = (e.message && e.message.includes('404')) || 
+                                (e.message && e.message.includes('Profil tidak ditemukan'));
+
+        if (!isExpectedError) {
+            // Cetak error ke konsol hanya jika ini BUKAN error 404/Profil tidak ditemukan yang disimulasikan
+            console.error("Gagal cek status pendaftaran:", e);
+        }
+
+        // Navigasi ke StatusPendaftaranAwal (ini yang menangani status 'kosongan')
+        navigation.navigate('StatusPendaftaranAwal' as any);
+    } finally {
+        setIsStatusLoading(false);
+    }
+  }, [navigation]);
 
   const handleLogout = () => {
     Alert.alert(
@@ -80,7 +129,6 @@ const ProfileScreen = () => {
     });
   };
 
-  // 🆕 Handler Change Email dengan authService
   const handleChangeEmail = async () => {
     // Validasi input
     if (!newEmail || !emailPassword) {
@@ -88,14 +136,12 @@ const ProfileScreen = () => {
       return;
     }
 
-    // Validasi format email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(newEmail)) {
       Alert.alert('Peringatan', 'Format email tidak valid.');
       return;
     }
 
-    // Cek apakah email sama dengan yang lama
     if (newEmail === userEmail) {
       Alert.alert('Peringatan', 'Email baru sama dengan email lama.');
       return;
@@ -109,16 +155,18 @@ const ProfileScreen = () => {
         password: emailPassword,
       });
       
+      // @ts-ignore
       if (response.success) {
-        // Update user di context
+        // @ts-ignore
         if (response.data?.user && setUser) {
+          // @ts-ignore
           setUser(response.data.user);
         }
         
+        // @ts-ignore
         Alert.alert('Berhasil', response.message || 'Email berhasil diubah');
         setShowEmailModal(false);
         
-        // Reset form
         setNewEmail('');
         setEmailPassword('');
       }
@@ -132,7 +180,6 @@ const ProfileScreen = () => {
     }
   };
 
-  // 🆕 Handler Change Password dengan authService
   const handleChangePassword = async () => {
     // Validasi input
     if (!currentPassword || !newPassword || !confirmNewPassword) {
@@ -140,19 +187,16 @@ const ProfileScreen = () => {
       return;
     }
 
-    // Cek apakah password baru sama dengan konfirmasi
     if (newPassword !== confirmNewPassword) {
       Alert.alert('Peringatan', 'Password baru dan konfirmasi tidak cocok.');
       return;
     }
 
-    // Cek panjang password
     if (newPassword.length < 8) {
       Alert.alert('Peringatan', 'Password baru minimal 8 karakter.');
       return;
     }
 
-    // Cek apakah password baru sama dengan password lama
     if (currentPassword === newPassword) {
       Alert.alert('Peringatan', 'Password baru harus berbeda dengan password lama.');
       return;
@@ -167,16 +211,17 @@ const ProfileScreen = () => {
         password_confirmation: confirmNewPassword,
       });
       
+      // @ts-ignore
       if (response.success) {
         Alert.alert(
           'Berhasil', 
+          // @ts-ignore
           response.message || 'Password berhasil diubah',
           [
             {
               text: 'OK',
               onPress: () => {
                 setShowPasswordModal(false);
-                // Reset form
                 setCurrentPassword('');
                 setNewPassword('');
                 setConfirmNewPassword('');
@@ -473,13 +518,18 @@ const ProfileScreen = () => {
 
         <TouchableOpacity 
           style={PendaftarStyles.navItem}
-          onPress={() => navigation.navigate('StatusPendaftaranAwal')}
+          onPress={handleStatusNavigation} 
+          disabled={isStatusLoading}
         >
-          <Image
-            source={require('../../assets/icons/fluent_shifts-activity.png')}
-            style={PendaftarStyles.navIconImage}
-            resizeMode="contain"
-          />
+          {isStatusLoading ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <Image
+              source={require('../../assets/icons/fluent_shifts-activity.png')}
+              style={PendaftarStyles.navIconImage}
+              resizeMode="contain"
+            />
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity style={PendaftarStyles.navItem}>

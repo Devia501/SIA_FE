@@ -16,10 +16,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
+import VerifikasiDokumenScreen from '../manager/VerifikasiDokumen';
 
-type VerifikasiPembayaranBerhasilNavigationProp = NativeStackNavigationProp<
+type VerifikasiDokumenNavigationProp = NativeStackNavigationProp<
   PendaftarStackParamList,
-  'VerifikasiPembayaranBerhasil'
+  'VerifikasiDokumenScreen'
 >;
 
 // 📌 Konstanta Warna (Sesuai tema hijau gelap)
@@ -31,8 +32,8 @@ const COLORS = {
   SUCCESS_GREEN: '#38A169', 
 };
 
-const VerifikasiPembayaranBerhasil = () => {
-  const navigation = useNavigation<VerifikasiPembayaranBerhasilNavigationProp>();
+const VerifikasiDokumen = () => {
+  const navigation = useNavigation<VerifikasiDokumenNavigationProp>();
   
   // 📌 Data Dummy: Ganti dengan data asli dari API
   const nomorPeserta = '140072569877'; 
@@ -60,7 +61,7 @@ const VerifikasiPembayaranBerhasil = () => {
               </TouchableOpacity>
               <View>
                 {/* 📌 Judul Header */}
-                <Text style={localStyles.headerTitle}>Verifikasi Pembayaran</Text>
+                <Text style={localStyles.headerTitle}>Verifikasi Dokumen</Text>
               </View>
             </View>
           </ImageBackground>
@@ -78,7 +79,7 @@ const VerifikasiPembayaranBerhasil = () => {
               />
             </View>
             <Text style={localStyles.confirmationText}>
-              Pembayaran berhasil dikonfirmasi
+              Dokumen berhasil diupload
             </Text>
           </View>
 
@@ -102,7 +103,7 @@ const VerifikasiPembayaranBerhasil = () => {
           {/* Tombol Aksi */}
           <TouchableOpacity 
             style={localStyles.statusButton}
-            onPress={() => navigation.navigate('StatusPendaftaranProses')} 
+            onPress={() => navigation.navigate('TungguKonfirmasi')} 
           >
             <Text style={localStyles.statusButtonText}>Lihat status pendaftaran</Text>
           </TouchableOpacity>
@@ -309,4 +310,4 @@ const localStyles = StyleSheet.create({
   },
 });
 
-export default VerifikasiPembayaranBerhasil;
+export default VerifikasiDokumen;

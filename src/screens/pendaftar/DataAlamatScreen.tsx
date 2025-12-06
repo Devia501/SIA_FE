@@ -1,3 +1,5 @@
+// src/screens/pendaftar/DataAlamatScreen.tsx
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -10,7 +12,6 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  // BackHandler dihapus
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -25,7 +26,7 @@ import {
   registrationService, 
   publicService, 
   Profile,
-  Region // Asumsi Region interface ada di apiService.ts
+  Region 
 } from '../../services/apiService'; 
 
 type DataAlamatScreenNavigationProp = NativeStackNavigationProp<PendaftarStackParamList, 'DataAlamat'>;
@@ -98,13 +99,13 @@ const DropdownModal: React.FC<DropdownModalProps> = ({
 const DataAlamatScreen: React.FC = () => {
   const navigation = useNavigation<DataAlamatScreenNavigationProp>();
   
-  // 🔑 STATES UNTUK DATA DINAMIS (API)
+  // 📌 STATES UNTUK DATA DINAMIS (API)
   const [provinsiList, setProvinsiList] = useState<Region[]>([]);
   const [kotaList, setKotaList] = useState<Region[]>([]);
   const [loadingRegion, setLoadingRegion] = useState(true); 
   const [loadingCities, setLoadingCities] = useState(false); 
   
-  // 🔑 STATES UNTUK NILAI YANG DIPILIH (Object)
+  // 📌 STATES UNTUK NILAI YANG DIPILIH (Object)
   const [selectedProvinsi, setSelectedProvinsi] = useState<Region | null>(null);
   const [selectedKota, setSelectedKota] = useState<Region | null>(null);
 
@@ -123,8 +124,7 @@ const DataAlamatScreen: React.FC = () => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
 
-  // 🔑 PENCEGAHAN BACK DENGAN ALERT (Tanpa BackHandler)
-  // Ini hanya akan muncul jika user mencoba menekan tombol back di header bawaan navigasi
+  // 📌 PENCEGAHAN BACK DENGAN ALERT 
   useEffect(() => {
     return navigation.addListener('beforeRemove', (e) => {
       // Jika user belum submit dan tidak sedang loading, tampilkan peringatan
@@ -138,44 +138,109 @@ const DataAlamatScreen: React.FC = () => {
     });
   }, [navigation, isSubmitting]);
 
-
   // 1. Load Semua Provinsi saat komponen mount
   useEffect(() => {
-      const loadProvinces = async () => {
-          try {
-              const data = await publicService.getProvinces();
-              setProvinsiList(data);
-          } catch (e) {
-              Alert.alert('Error', 'Gagal memuat daftar provinsi. Periksa API atau koneksi.');
-          } finally {
-              setLoadingRegion(false);
-          }
-      };
-      loadProvinces();
+      loadInitialData();
   }, []);
 
-  // 2. Load Kota/Kabupaten setiap kali Provinsi dipilih
+  /**
+   * Helper: Muat kota/kabupaten dan set kota yang tersimpan
+   */
+  const loadCitiesByProvinceId = async (provinceId: number, storedCityName?: string | null) => {
+      setLoadingCities(true);
+      try {
+          const cities = await publicService.getCities(provinceId);
+          setKotaList(cities);
+
+          if (storedCityName) {
+              const storedCity = cities.find(c => c.name === storedCityName);
+              setSelectedKota(storedCity || null);
+          } else {
+              // Jika tidak ada storedCityName (dipanggil dari handleSelectProvinsi), reset kota
+              setSelectedKota(null);
+          }
+      } catch (e) {
+          Alert.alert('Error', 'Gagal memuat daftar kota/kabupaten.');
+      } finally {
+          setLoadingCities(false);
+      }
+  };
+
+
+  /**
+   * 🛠️ FUNGSI: Memuat data awal (Provinsi dan Profil Tersimpan)
+   */
+  const loadInitialData = async () => {
+      setLoadingRegion(true);
+      let provinces: Region[] = [];
+      let profile: Profile | null = null;
+
+      try {
+          // 1. Ambil daftar Provinsi
+          provinces = await publicService.getProvinces();
+          setProvinsiList(provinces);
+          
+          // 2. Ambil Profil yang sudah tersimpan
+          try {
+              profile = await registrationService.getProfile();
+          } catch (error: any) {
+              // Abaikan 404 (Profil belum ada)
+              if (error.response?.status !== 404) {
+                  throw error; 
+              }
+          }
+      } catch (e) {
+          Alert.alert('Error', 'Gagal memuat data awal (wilayah/profil).');
+          setLoadingRegion(false);
+          return;
+      }
+      
+      // 3. Isi state jika profil ditemukan
+      if (profile && profile.province) {
+          // A. Set input manual
+          setKecamatan(profile.kecamatan || '');
+          setKelurahan(profile.kelurahan || '');
+          setKodePos(profile.postal_code || '');
+          setNamaDusun(profile.dusun || '');
+          setAlamatLengkap(profile.full_address || '');
+          
+          // B. Set Provinsi terpilih
+          const storedProvince = provinces.find(p => p.name === profile.province);
+          if (storedProvince) {
+              setSelectedProvinsi(storedProvince);
+              
+              // C. Muat Kota/Kabupaten berdasarkan Provinsi yang tersimpan
+              const provinceId = storedProvince.id_province || storedProvince.id;
+              if (provinceId) {
+                  // PENTING: Panggil helper loadCities untuk memuat dan mengatur kota
+                  // Note: Kita memanggilnya di sini SINKRON (await) agar kotanya terisi sebelum UI render penuh.
+                  await loadCitiesByProvinceId(provinceId, profile.city_regency); 
+              }
+          }
+      }
+
+      setLoadingRegion(false);
+  };
+  
+  
+  // 2. Load Kota/Kabupaten setiap kali Provinsi dipilih (HANYA UNTUK INTERAKSI USER)
   useEffect(() => {
       const provinceId = selectedProvinsi?.id_province || selectedProvinsi?.id; 
 
-      if (selectedProvinsi && provinceId) {
-          setLoadingCities(true); 
-          const loadCities = async () => {
-              try {
-                  const data = await publicService.getCities(provinceId!); 
-                  setKotaList(data);
-              } catch (e) {
-                  Alert.alert('Error', 'Gagal memuat daftar kota/kabupaten.');
-              } finally {
-                  setLoadingCities(false); 
-              }
-          };
-          loadCities();
-      } else {
+      // 🔑 LOGIKA KUNCI: Hanya jalankan jika loadingRegion sudah FALSE (initial load selesai)
+      // dan ada selectedProvinsi. Kita tidak perlu reset/load di sini, karena sudah di handle di handleSelectProvinsi
+      if (!loadingRegion && selectedProvinsi && provinceId) {
+          // Jika selectedKota masih null, ini berarti provinsi baru dipilih user
+          if (!selectedKota) {
+               loadCitiesByProvinceId(provinceId); 
+          }
+      } else if (!loadingRegion && !selectedProvinsi) {
           setKotaList([]);
       }
-      setSelectedKota(null); 
-  }, [selectedProvinsi]);
+      // Note: Jika loadingRegion TRUE, proses dikontrol oleh loadInitialData()
+
+  }, [selectedProvinsi, loadingRegion]);
+
 
   
   // --- HANDLER SELECTION ---
@@ -184,19 +249,26 @@ const DataAlamatScreen: React.FC = () => {
       const prov = provinsiList.find(p => p.name === provinsiName);
       
       setSelectedProvinsi(prov || null); 
-      setSelectedKota(null); 
       
+      // 🔑 PENTING: Reset kota dan input manual terkait wilayah
+      setSelectedKota(null); 
+      setKotaList([]); // Kosongkan daftar kota saat provinsi berubah
       setKecamatan('');
       setKelurahan('');
       setKodePos('');
+
+      // Jika provinsi dipilih, langsung muat kota baru
+      const provinceId = prov?.id_province || prov?.id;
+      if (prov && provinceId) {
+          loadCitiesByProvinceId(provinceId); // Muat data kota baru tanpa storedCityName
+      }
   };
 
   const handleSelectKota = (kotaName: string) => {
       const kota = kotaList.find(c => c.name === kotaName);
       setSelectedKota(kota || null);
       
-      setKecamatan('');
-      setKelurahan('');
+      // Note: Tidak perlu reset kecamatan/kelurahan/kodePos di sini
   };
   
   // --- LOGIKA SUBMIT ---
@@ -212,7 +284,7 @@ const DataAlamatScreen: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-        // 1. 🔑 AMBIL DATA PROFIL LAMA (untuk melengkapi payload)
+        // 1. 📌 AMBIL DATA PROFIL LAMA (untuk melengkapi payload)
         const oldProfile = await registrationService.getProfile();
 
         // 2. Siapkan Payload Gabungan
@@ -224,14 +296,14 @@ const DataAlamatScreen: React.FC = () => {
             nik: oldProfile.nik,
             birth_place: oldProfile.birth_place,
             
-            // 🛑 PERBAIKAN: Jamin field date/email adalah string kosong jika null/undefined
+            // 📌 PERBAIKAN: Jamin field date/email adalah string kosong jika null/undefined
             email: oldProfile.email || '', 
             birth_date: oldProfile.birth_date || '', 
             phone_number: oldProfile.phone_number,
             
             // Data alamat baru
-            province: selectedProvinsi.name,
-            city_regency: selectedKota.name,
+            province: selectedProvinsi!.name, // Sudah divalidasi tidak null
+            city_regency: selectedKota!.name, // Sudah divalidasi tidak null
             kecamatan: kecamatan.trim(),
             kelurahan: kelurahan.trim(),
             postal_code: kodePos.trim(),
@@ -245,7 +317,7 @@ const DataAlamatScreen: React.FC = () => {
         Alert.alert('Sukses', 'Data Alamat berhasil disimpan!', [
             {
                 text: 'OK',
-                // 🔑 NAVIGASI TERKUNCI: Hanya terjadi setelah API sukses dan user klik OK
+                // 📌 NAVIGASI TERKUNCI: Hanya terjadi setelah API sukses dan user klik OK
                 onPress: () => navigation.navigate('DataAkademik'),
             },
         ]);

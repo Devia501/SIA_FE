@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import {
+import React, { useState, useEffect, useCallback } from 'react';
+import { // ✅ Tambahkan useCallback, useEffect
   View,
   Text,
   TouchableOpacity,
@@ -9,12 +9,15 @@ import {
   StyleSheet,
   Dimensions,
   Alert, 
+  ActivityIndicator, // ✅ Tambahkan ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ManagerStackParamList } from '../../navigation/ManagerNavigator';
 import { useAuth } from '../../contexts/AuthContext'; 
+// Import services dan tipe data
+import { managerService, Statistics } from '../../services/managerService'; 
 // Import styles dari ManagerStyles.ts
 import { ManagerStyles, Colors } from '../../styles/ManagerStyles'; 
 import LinearGradient from 'react-native-linear-gradient';
@@ -25,6 +28,30 @@ type DashboardManagerNavigationProp = NativeStackNavigationProp<ManagerStackPara
 const DashboardManager = () => {
   const navigation = useNavigation<DashboardManagerNavigationProp>();
   const { logout, user } = useAuth(); 
+  
+  // ✅ STATE BARU untuk menampung statistik dan loading
+  const [statistics, setStatistics] = useState<Statistics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 🔄 FUNGSI UNTUK MEMUAT DATA STATISTIK
+  const loadStatistics = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await managerService.getStatistics();
+      setStatistics(response.data);
+    } catch (error: any) {
+      console.error('❌ Gagal memuat statistik:', error);
+      Alert.alert('Error', error.message || 'Gagal memuat data statistik pendaftar.');
+      setStatistics(null); // Reset jika gagal
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatistics();
+  }, [loadStatistics]);
+
 
   const handleLogout = () => {
     Alert.alert(
@@ -44,8 +71,16 @@ const DashboardManager = () => {
   
   const handleSystemSettings = () => {
     // Implementasikan navigasi ke System Settings
-    console.log('Navigate to System Settings');
+    navigation.navigate('SystemSettings');
   };
+  
+  // Data statistik yang siap digunakan
+  const totalPendaftar = statistics?.total ?? 0;
+  const totalApproved = statistics?.approved ?? 0;
+  const totalRejected = statistics?.rejected ?? 0;
+  // Pending = Submitted
+  const totalPending = statistics?.submitted ?? 0; 
+  // Catatan: Asumsi "Pending" di UI dashboard adalah status "submitted" di API
 
   return (
     <SafeAreaView style={ManagerStyles.container} edges={['top']}>
@@ -81,39 +116,50 @@ const DashboardManager = () => {
           <View style={styles.summaryHeader}>
             <Text style={styles.summaryTitle}>Today's Summary</Text>
             <View style={styles.notificationBadge}>
-              <Text style={styles.notificationText}>0</Text>
+              {/* ✅ Gunakan jumlah pendaftar yang pending sebagai notifikasi */}
+              <Text style={styles.notificationText}>{totalPending}</Text> 
             </View>
           </View>
 
-          <Text style={styles.greetingText}>Selamat datang, {user?.name || 'manager system'}!</Text>
+          <Text style={styles.greetingText}>Selamat datang, {user?.name || 'Manager System'}!</Text>
 
-          {/* Total Pendaftar Card */}
-          <View style={styles.totalCard}>
-            <Text style={styles.totalNumber}>0</Text>
-            <Text style={styles.totalLabel}>Total Pendaftar</Text>
-          </View>
+          {isLoading ? (
+            <ActivityIndicator size="large" color={Colors.secondary} style={{ marginTop: 50, marginBottom: 50 }} />
+          ) : (
+            <>
+              {/* Total Pendaftar Card */}
+              <View style={styles.totalCard}>
+                <Text style={styles.totalNumber}>{totalPendaftar}</Text>
+                <Text style={styles.totalLabel}>Total Pendaftar</Text>
+              </View>
 
-          {/* Stats Cards */}
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>0</Text>
-              <Text style={styles.statLabel}>Diterima</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>0</Text>
-              <Text style={styles.statLabel}>Pending</Text>
-            </View>
-          </View>
+              {/* Stats Cards */}
+              <View style={styles.statsRow}>
+                <View style={styles.statCard}>
+                  {/* ✅ Diterima */}
+                  <Text style={styles.statNumber}>{totalApproved}</Text>
+                  <Text style={styles.statLabel}>Diterima</Text>
+                </View>
+                <View style={styles.statCard}>
+                  {/* ✅ Pending (Submitted) */}
+                  <Text style={styles.statNumber}>{totalPending}</Text>
+                  <Text style={styles.statLabel}>Pending</Text>
+                </View>
+              </View>
 
-          {/* Ditolak Card */}
-          <View style={styles.rejectCard}>
-            <Text style={styles.rejectNumber}>0</Text>
-            <Text style={styles.rejectLabel}>Ditolak</Text>
-          </View>
+              {/* Ditolak Card */}
+              <View style={styles.rejectCard}>
+                {/* ✅ Ditolak */}
+                <Text style={styles.rejectNumber}>{totalRejected}</Text>
+                <Text style={styles.rejectLabel}>Ditolak</Text>
+              </View>
+            </>
+          )}
 
           {/* Action Buttons */}
           <TouchableOpacity 
-            onPress={handleKelolaPendaftaran} // Tambahkan handler navigasi
+            onPress={handleKelolaPendaftaran} 
+            disabled={isLoading} // Nonaktifkan saat memuat data
           >
             <LinearGradient
                 colors={['#DABC4E', '#EFE3B0']}
@@ -127,7 +173,8 @@ const DashboardManager = () => {
 
           <TouchableOpacity 
             style={styles.actionButtonSecondary}
-            onPress={() => navigation.navigate('SystemSettings')}
+            onPress={handleSystemSettings}
+            disabled={isLoading}
           >
             <Text style={styles.actionButtonText}>System Settings</Text>
           </TouchableOpacity>
@@ -178,7 +225,7 @@ const DashboardManager = () => {
   );
 };
 
-// Style spesifik untuk DashboardManager
+// Style spesifik untuk DashboardManager (Dipertahankan)
 const styles = StyleSheet.create({
   summaryHeader: {
     flexDirection: 'row',

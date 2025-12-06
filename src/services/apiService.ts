@@ -66,7 +66,7 @@ export interface Profile {
   id_program_2?: number; 
   id_program_3?: number; 
   registration_number?: string;
-  registration_status?: 'draft' | 'submitted' | 'approved' | 'rejected';
+  registration_status?: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
   full_name: string;
   gender?: string; 
   religion?: string;
@@ -131,7 +131,7 @@ export interface Achievement {
 
 export interface RegistrationStatus {
   registration_number: string;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  status: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
   full_name: string;
   email: string;
 }
@@ -319,12 +319,99 @@ export const publicService = {
 };
 
 // ============================================
+// 📋 TYPES
+// ============================================
+
+export interface PaymentMethod {
+  id: number;
+  method_type: string;
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
+  payment_instructions?: string;
+  is_active: boolean;
+}
+
+export interface Payment {
+  id: number;
+  id_user: number;
+  payment_code: string;
+  invoice_number?: string;
+  amount: number;
+  rejection_reason?: string; // ✅ Pastikan ini ada
+  paid_amount: number;
+  status: 'pending' | 'waiting_verification' | 'verified' | 'expired' | 'rejected';
+  due_date: string;
+  payment_proof_file?: string; // ✅ Tambahkan ini
+  // Backend me-load 'user', bukan 'applicant_profile' secara langsung di endpoint myPayment
+  user?: {
+    id: number;
+    name: string;
+    email: string;
+  };
+  // Kita tambahkan ini opsional, jaga-jaga jika PaymentResource mengembalikannya
+  applicant_profile?: {
+    full_name: string;
+    registration_number: string;
+  };
+}
+
+export interface MyPaymentResponse {
+  payment: Payment;
+  available_payment_methods: PaymentMethod[];
+}
+
+// ============================================
+// 💰 PAYMENT SERVICE
+// ============================================
+export const paymentService = {
+  /**
+   * GET /api/payments/my
+   */
+  getMyPayment: async (): Promise<MyPaymentResponse | null> => {
+    try {
+      const response = await api.get('/payments/my');
+      console.log('💳 Payment response:', response.data); // ✅ Debugging
+      return response.data.data; 
+    } catch (error: any) {
+      // Jika 404 atau error lain, return null
+      if (error.response?.status === 404) {
+        console.log('💳 No payment data found');
+        return null;
+      }
+      console.error('❌ Error fetching payment:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * POST /api/payments/{id}/upload-proof
+   * Sesuai PaymentController: uploadProof(PaymentUploadProofRequest $request, Payment $payment)
+   */
+  uploadProof: async (paymentId: number, formData: FormData) => {
+    // Simulasi mode offline/hybrid
+    if (paymentId === 8888) {
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                resolve({ success: true, message: 'Upload Simulasi Berhasil' });
+            }, 1000);
+        });
+    }
+
+    const response = await api.post(`/payments/${paymentId}/upload-proof`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+};
+// ============================================
 // 📦 EXPORT
 // ============================================
 export default {
   admin: adminService,
   registration: registrationService,
   public: publicService,
+  payment: paymentService,
 };
 
 // Interceptor untuk error handling

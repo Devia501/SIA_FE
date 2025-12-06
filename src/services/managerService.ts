@@ -11,7 +11,7 @@ export interface Applicant {
   email: string;
   program_name: string;
   registration_number: string;
-  registration_status: 'submitted' | 'approved' | 'rejected' | 'draft';
+  registration_status: 'submitted' | 'approved' | 'rejected' | 'draft' | 'reviewed';
   created_at: string;
   phone_number?: string;
   rejection_reason?: string; // 🆕 Alasan penolakan
@@ -25,7 +25,7 @@ export interface Statistics {
 }
 
 export interface UpdateStatusData {
-  status: 'approved' | 'rejected';
+  status: 'approved' | 'rejected' | 'reviewed';
   notes?: string; // 🆕 Catatan untuk approval/rejection
 }
 
@@ -42,10 +42,69 @@ export const managerService = {
   /**
    * Get list of applicants with filters
    * GET /api/admin/applicants
-   * 
-   * @param filters - Optional filters for status and search
+   * * @param filters - Optional filters for status and search
    * @returns Promise with list of applicants
    */
+  getApplicantPayment: async (applicantId: number): Promise<ApiResponse<PaymentDetail>> => {
+    try {
+      console.log(`💰 Fetching payment for applicant: ${applicantId}`);
+      const response = await api.get<ApiResponse<PaymentDetail>>(`/admin/applicants/${applicantId}/payment`);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Get payment error:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Get applicant achievements
+   * GET /api/admin/applicants/{id}/achievements
+   * * @param id - Applicant profile ID
+   * @returns Promise with achievements list
+   */
+  getApplicantAchievements: async (id: number): Promise<ApiResponse<any>> => {
+    try {
+      console.log(`🏆 Fetching achievements for applicant ID: ${id}`);
+      
+      const response = await api.get<ApiResponse<any>>(
+        `/admin/applicants/${id}/achievements`
+      );
+      
+      console.log('✅ Achievements fetched successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Get achievements error:', error.response?.data || error.message);
+      
+      // Jika error 404 (tidak ada prestasi), kita bisa return array kosong agar tidak error di UI
+      if (error.response?.status === 404) {
+          return { success: true, data: [] };
+      }
+      
+      throw error;
+    }
+  },
+
+  /**
+   * 🆕 Verify or Reject Payment
+   * PUT /api/admin/payments/{id}/verify
+   */
+  verifyPayment: async (
+    paymentId: number,
+    data: {
+      status: 'verified' | 'rejected'; // Sesuai Payment Scope backend
+      rejection_reason?: string; // Wajib jika rejected
+    }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      console.log(`💸 Updating payment ${paymentId} to ${data.status}`);
+      const response = await api.put<ApiResponse<any>>(`/admin/payments/${paymentId}/verify`, data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Verify payment error:', error.response?.data || error.message);
+      throw new Error(error.response?.data?.message || 'Gagal memproses pembayaran.');
+    }
+  },
+
   getApplicants: async (filters?: {
     status?: string;
     search?: string;
@@ -93,8 +152,7 @@ export const managerService = {
   /**
    * Get statistics of applicants
    * GET /api/admin/statistics
-   * 
-   * @returns Promise with statistics data
+   * * @returns Promise with statistics data
    */
   getStatistics: async (): Promise<ApiResponse<Statistics>> => {
     try {
@@ -123,12 +181,13 @@ export const managerService = {
     }
   },
 
+  
+
   /**
    * Update applicant status (approve/reject)
    * PUT /api/admin/applicants/{id}/status
    * 🔐 MANAGER ONLY - Can approve/reject
-   * 
-   * @param id - Applicant profile ID
+   * * @param id - Applicant profile ID
    * @param data - Status update data (status + optional notes)
    * @returns Promise with success message
    */
@@ -200,8 +259,7 @@ export const managerService = {
   /**
    * Get applicant documents
    * GET /api/admin/applicants/{id}/documents
-   * 
-   * @param id - Applicant profile ID
+   * * @param id - Applicant profile ID
    * @returns Promise with documents list
    */
   getApplicantDocuments: async (id: number): Promise<ApiResponse<any>> => {
@@ -293,11 +351,13 @@ export const managerService = {
     }
   ): Promise<ApiResponse<any>> => {
     try {
+      // 🚨 Peringatan: Pastikan di VerifikasiDokumen.tsx, jika status Rejected, 
+      // field 'notes' diisi oleh inputan modal.
       console.log(`🔄 Updating document ${id} status to:`, data.status);
       
       const response = await api.put<ApiResponse<any>>(
         `/admin/documents/${id}/verify`,
-        data
+        data // Payload: { status, notes }
       );
       
       console.log('✅ Document status updated successfully');
@@ -305,6 +365,7 @@ export const managerService = {
     } catch (error: any) {
       console.error('❌ Update document status error:', error.response?.data || error.message);
       
+      // Handle validation errors
       if (error.response?.data?.errors) {
         const errors = error.response.data.errors;
         const errorMessages = Object.values(errors).flat();
@@ -319,6 +380,11 @@ export const managerService = {
         throw new Error('Akses ditolak.');
       }
       
+      // 🔥 Penyesuaian: Berikan pesan yang lebih jelas untuk error dari backend
+      if (error.response?.status >= 500) {
+        throw new Error('Gagal mengubah status dokumen. Terjadi masalah di server.');
+      }
+
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
       }
@@ -335,8 +401,7 @@ export const adminService = {
   /**
    * Get list of applicants (READ ONLY)
    * GET /api/admin/applicants
-   * 
-   * Admin hanya bisa melihat data, tidak bisa approve/reject
+   * * Admin hanya bisa melihat data, tidak bisa approve/reject
    */
   getApplicants: async (filters?: {
     status?: string;
@@ -367,12 +432,28 @@ export const adminService = {
 };
 
 // ============================================
-// 🔧 HELPER FUNCTIONS
+// 🔧 HELPER FUNCTIONS (Tidak Berubah)
 // ============================================
 
 /**
  * Format error message from API response
  */
+export interface PaymentDetail {
+  id: number;
+  payment_code: string;
+  amount: number;
+  paid_amount: number;
+  status: 'pending' | 'waiting_verification' | 'verified' | 'rejected' | 'expired';
+  payment_date: string; // dari accessor backend
+  payment_method_name: string; // dari relasi
+  sender_bank?: string;
+  sender_account_number?: string;
+  sender_account_holder?: string;
+  payment_proof_file?: string;
+  proof_url?: string;
+  rejection_reason?: string;
+}
+
 export const formatErrorMessage = (error: any): string => {
   if (error.response?.data?.errors) {
     const errors = error.response.data.errors;
@@ -412,6 +493,7 @@ export const formatStatus = (status: string): string => {
   const statusMap: Record<string, string> = {
     draft: 'Draft',
     submitted: 'Pending',
+    reviewed: 'Sedang Diproses',
     approved: 'Diterima',
     rejected: 'Ditolak',
   };
@@ -426,6 +508,7 @@ export const getStatusColor = (status: string): string => {
   const colorMap: Record<string, string> = {
     draft: '#95a5a6',
     submitted: '#f39c12',
+    reviewed: '#3498db',
     approved: '#27ae60',
     rejected: '#e74c3c',
   };

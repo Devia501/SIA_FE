@@ -23,15 +23,14 @@ type VerifikasiPembayaranNavigationProp = NativeStackNavigationProp<
 const VerifikasiPembayaranScreen = () => {
   const navigation = useNavigation<VerifikasiPembayaranNavigationProp>();
 
+  // Navigasi ke halaman status pendaftaran
   const handleLihatStatus = () => {
-    // Navigasi ke halaman status pendaftaran
-    // navigation.navigate('StatusPendaftaran' as any);
+    navigation.navigate('TungguKonfirmasi' as any); 
   };
 
+  // Navigasi kembali ke Dashboard
   const handleKembaliKeHome = () => {
-    // Navigasi ke home atau halaman utama
-    // navigation.navigate('Home' as any);
-    navigation.goBack();
+    navigation.navigate('PendaftarDashboard');
   };
 
   return (
@@ -47,7 +46,7 @@ const VerifikasiPembayaranScreen = () => {
             <View style={PendaftarStyles.headerContentV2}>
               <TouchableOpacity 
                 style={PendaftarStyles.backButton}
-                onPress={() => navigation.goBack()}
+                onPress={handleKembaliKeHome}
               >
                 <Image
                   source={require('../../assets/icons/material-symbols_arrow-back-rounded.png')}
@@ -68,7 +67,7 @@ const VerifikasiPembayaranScreen = () => {
           <View style={localStyles.statusCard}>
             <View style={localStyles.iconCircle}>
               <Image
-                source={require('../../assets/icons/lets-icons_time-fill.png')} // Ganti dengan icon jam yang sesuai
+                source={require('../../assets/icons/lets-icons_time-fill.png')}
                 style={localStyles.clockIcon}
                 resizeMode="contain"
               />
@@ -83,7 +82,7 @@ const VerifikasiPembayaranScreen = () => {
             {/* Lihat Status Button */}
             <TouchableOpacity
               style={localStyles.statusButton}
-              onPress={() => navigation.navigate('TungguKonfirmasi')}
+              onPress={handleLihatStatus}
             >
               <LinearGradient
                 colors={['#189653', '#2DB872']}
@@ -97,8 +96,9 @@ const VerifikasiPembayaranScreen = () => {
 
             {/* Kembali ke Home Button */}
             <TouchableOpacity
-            style={localStyles.homeButton}
-            onPress={() => navigation.navigate('PendaftarDashboard')}>
+              style={localStyles.homeButton}
+              onPress={handleKembaliKeHome}
+            >
               <Text style={localStyles.homeButtonText}>Kembali Ke Home</Text>
             </TouchableOpacity>
           </View>
@@ -180,7 +180,7 @@ const localStyles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#000',
-    width:'90%',
+    width: '90%',
     left: 15,
   },
   gradientButton: {
@@ -203,7 +203,7 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#000',
-    width:'90%',
+    width: '90%',
     left: 15,
   },
   homeButtonText: {

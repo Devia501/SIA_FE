@@ -56,7 +56,7 @@ interface PickedDocument {
   server_id?: number;
 }
 
-// Helper: Dropdown Modal (Kode ini tidak diubah, aman)
+// Helper: Dropdown Modal (Perbaikan pada logika onSelect/onClose)
 const DropdownModal = ({ 
   visible, 
   onClose, 
@@ -79,7 +79,7 @@ const DropdownModal = ({
     <TouchableOpacity 
       style={PendaftaranStyles.modalOverlay} 
       activeOpacity={1}
-      onPress={onClose}
+      onPress={onClose} // onClose akan dipanggil (termasuk reset openDropdown di parent)
     >
       <View style={PendaftaranStyles.modalContent}>
         <ScrollView style={PendaftaranStyles.modalScrollView}>
@@ -92,7 +92,7 @@ const DropdownModal = ({
               ]}
               onPress={() => {
                 onSelect(option);
-                onClose();
+                onClose(); // Panggil onClose setelah memilih
               }}
             >
               <Text style={[
@@ -156,7 +156,8 @@ const PendaftaranScreen = () => {
   const [showProdi3Modal, setShowProdi3Modal] = useState(false);
   const [showJenisKelaminModal, setShowJenisKelaminModal] = useState(false);
   const [showKewarganegaraanModal, setShowKewarganegaraanModal] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  // Perbaikan state untuk mengontrol visual dropdown (ikon panah)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null); 
   
   // 📌 State Submission & Document Types (Default ke 0/null)
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -174,6 +175,21 @@ const PendaftaranScreen = () => {
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  // 🔑 LOGIKA PENCEGAHAN BACK 
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (e) => {
+      // Jika user belum submit dan tidak sedang loading, tampilkan peringatan
+      if (!isSubmitting) {
+        Alert.alert(
+          "Peringatan!", 
+          "Anda harus menyimpan data di halaman ini sebelum melanjutkan."
+        );
+        e.preventDefault(); // Mencegah aksi back default
+      }
+      // Jika isSubmitting true, biarkan navigasi (diasumsikan handleNext berhasil dan akan menavigasi ke depan)
+    });
+  }, [navigation, isSubmitting]);
 
   const loadInitialData = async () => {
     // ... (Logika loadInitialData tidak diubah, sudah benar)
@@ -270,21 +286,44 @@ const PendaftaranScreen = () => {
 
   // 📌 FUNGSI VALIDASI FORM (Dipertahankan)
   const validateForm = (isFinalSubmit = false): boolean => {
+    // 1. Validasi Data Diri Dasar
     if (!namaLengkap.trim()) { Alert.alert('Validasi', 'Nama lengkap harus diisi'); return false; }
     if (!email.trim() || !email.includes('@')) { Alert.alert('Validasi', 'Email harus diisi dengan format yang benar'); return false; }
-    if (!prodiPilihan1) { Alert.alert('Validasi', 'Pilih minimal prodi pilihan 1'); return false; }
+    if (!prodiPilihan1) { Alert.alert('Validasi', 'Pilih minimal Program Studi Pilihan 1'); return false; }
     if (!jenisKelamin) { Alert.alert('Validasi', 'Jenis kelamin harus dipilih'); return false; }
+    if (!agama.trim()) { Alert.alert('Validasi', 'Agama harus diisi'); return false; } // BARU: Wajib
+    
+    // 2. Validasi Kontak & Lahir
     if (!nomorPonsel.trim()) { Alert.alert('Validasi', 'Nomor ponsel harus diisi'); return false; }
     if (nomorPonsel.length < 10) { Alert.alert('Validasi', 'Nomor ponsel minimal 10 digit'); return false; }
     if (!tempatLahir.trim()) { Alert.alert('Validasi', 'Tempat lahir harus diisi'); return false; }
     if (!tanggalLahir.trim()) { Alert.alert('Validasi', 'Tanggal lahir harus diisi'); return false; }
     if (!tanggalLahir.match(/^\d{4}-\d{2}-\d{2}$/)) { Alert.alert('Validasi', 'Format tanggal harus YYYY-MM-DD\nContoh: 2000-12-31'); return false; }
-    if (!nik.trim()) { Alert.alert('Validasi', 'NIK/Kitas harus diisi'); return false; }
     
+    // 3. Validasi NIK & Kewarganegaraan
+    if (!nik.trim()) { Alert.alert('Validasi', 'NIK/Kitas harus diisi'); return false; }
+    if (!kewarganegaraan) { Alert.alert('Validasi', 'Kewarganegaraan harus dipilih'); return false; } // BARU: Wajib
+    
+    // 4. Validasi Data Keluarga (BARU: Wajib)
+    if (!nomorKartuKeluarga.trim()) { Alert.alert('Validasi', 'Nomor Kartu Keluarga harus diisi'); return false; }
+    if (!nomorRegistrasiAktaLahir.trim()) { Alert.alert('Validasi', 'Nomor Registrasi Akta Lahir harus diisi'); return false; }
+    if (!anakKeBerapa.trim()) { Alert.alert('Validasi', 'Data "Anak ke berapa" harus diisi'); return false; }
+    if (!jumlahSaudaraKandung.trim()) { Alert.alert('Validasi', 'Jumlah saudara kandung harus diisi'); return false; }
+
+    // 5. Validasi Khusus Submit (Pengecekan Dokumen & Logika NIK)
     if (isFinalSubmit) {
-      if (nik.length !== 16 && kewarganegaraan === 'WNI (Warga Negara Indonesia)') { Alert.alert('Validasi', 'NIK harus tepat 16 digit'); return false; }
-      if (!uploadedDocument) { Alert.alert('Validasi', 'Upload KTP/Kitas wajib'); return false; }
+      // Cek Validitas NIK WNI
+      if (kewarganegaraan.includes('WNI') && nik.length !== 16) { 
+        Alert.alert('Validasi', 'Untuk WNI, NIK harus tepat 16 digit'); 
+        return false; 
+      }
+
+      // Cek Dokumen (Semua Dokumen Wajib)
+      if (!uploadedDocument) { Alert.alert('Validasi', 'Dokumen KTP/Kitas wajib diupload'); return false; }
+      if (!uploadedAktaKelahiran) { Alert.alert('Validasi', 'Dokumen Akta Kelahiran wajib diupload'); return false; }
+      if (!uploadedKartuKeluarga) { Alert.alert('Validasi', 'Dokumen Kartu Keluarga wajib diupload'); return false; }
     }
+    
     return true;
   };
   
@@ -294,11 +333,6 @@ const PendaftaranScreen = () => {
       if (!validateForm(false)) return false;
 
       // 🔑 PERBAIKAN: Gunakan nilai null eksplisit untuk field yang kosong
-      // jika Anda mencurigai ada kolom NOT NULL tersembunyi, 
-      // pastikan semua field yang diisi di form dikirim.
-      
-      // Jika field numeric kosong, kirim 'undefined' agar tidak dikirim ke backend 
-      // (asumsi database mengizinkan NULL atau backend memiliki default)
       const citizenshipValue = kewarganegaraan.startsWith('WNI') ? 'WNI' : kewarganegaraan.startsWith('WNA') ? 'WNA' : undefined;
 
       const payload: Partial<Profile> = {
@@ -328,9 +362,52 @@ const PendaftaranScreen = () => {
           await registrationService.storeProfile(payload);
           return true;
       } catch (error: any) {
-          // Pesan error dari backend sudah ditangani oleh interceptor apiService
-          const errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data dasar profil. Periksa NIK/Email atau koneksi Anda.';
-          Alert.alert('Error Simpan Profil', errorMessage);
+          // 🛠️ PERBAIKAN LOGIKA ERROR: Cek error yang mengarah ke duplikasi (validasi 422) ATAU Server Error (500)
+          let errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data dasar profil. Periksa NIK/Email atau koneksi Anda.';
+          let isWarning = false;
+
+          if (error.response?.status === 422) {
+             // Handle 422 (Unprocessable Entity) - Validasi/Duplikasi Standar
+             const validationErrors = error.response.data?.errors;
+             if (validationErrors) {
+                const firstErrorKey = Object.keys(validationErrors)[0];
+                const firstErrorMessage = validationErrors[firstErrorKey][0];
+
+                // 🔑 PERBAIKAN LOGIKA DUPLIKASI
+                if (firstErrorKey.includes('nik') && firstErrorMessage.includes('sudah ada')) {
+                    errorMessage = 'NIK/Kitas sudah terdaftar di sistem. Mohon cek kembali.';
+                } else if (firstErrorKey.includes('email') && firstErrorMessage.includes('sudah ada')) {
+                    errorMessage = 'Email sudah terdaftar di sistem. Mohon cek kembali.';
+                } else if (firstErrorKey.includes('phone_number') && firstErrorMessage.includes('sudah ada')) {
+                    errorMessage = 'Nomor Ponsel sudah terdaftar di sistem. Mohon cek kembali.';
+                } else {
+                    errorMessage = firstErrorMessage;
+                }
+             }
+             isWarning = true;
+
+          } else if (error.response?.status === 500) {
+            // Handle 500 (Server Error) - Periksa jika pesan di dalamnya adalah Duplikasi/Missing Field
+            const serverMessage = error.response.data?.message || '';
+            const errorDetail = error.response.data?.error_detail || '';
+
+            if (serverMessage.includes('Gagal menyimpan profile: Ada field wajib database yang kosong')) {
+              errorMessage = 'Terjadi kesalahan server: Ada data wajib yang belum terisi lengkap atau format tanggal salah (YYYY-MM-DD).';
+              isWarning = true; // Dianggap peringatan karena masalah input/field kosong
+            } else if (errorDetail.includes('Duplicate entry') || serverMessage.includes('Duplicate entry')) {
+              // 🔑 PERBAIKAN LOGIKA DUPLIKASI
+              errorMessage = 'Terdapat duplikasi data NIK/Email/Nomor Ponsel. Mohon cek kembali data Anda.';
+              isWarning = true;
+            }
+          }
+          
+          if (isWarning) {
+              Alert.alert('Peringatan Data Profil', errorMessage);
+          } else {
+              // Error koneksi atau server 500 yang tidak teridentifikasi
+              Alert.alert('Error Simpan Profil', errorMessage);
+          }
+          
           return false;
       }
   };
@@ -500,7 +577,7 @@ const PendaftaranScreen = () => {
 
     setIsSubmitting(true);
     
-    // 🔑 PERBAIKAN: Menggunakan payload yang sama dengan saveCurrentProfileData
+    // 🔑 Payload tidak berubah
     const citizenshipValue = kewarganegaraan.startsWith('WNI') ? 'WNI' : kewarganegaraan.startsWith('WNA') ? 'WNA' : undefined;
 
     const payload: Partial<Profile> = {
@@ -535,8 +612,50 @@ const PendaftaranScreen = () => {
         },
       ]);
     } catch (error: any) {
-      const errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data identitas';
-      Alert.alert('Error', errorMessage);
+      // 🛠️ PERBAIKAN LOGIKA ERROR: Cek error yang mengarah ke duplikasi (validasi 422) ATAU Server Error (500)
+      let errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data identitas';
+      let isWarning = false;
+
+      if (error.response?.status === 422) {
+          // Handle 422 (Unprocessable Entity) - Validasi/Duplikasi Standar
+          const validationErrors = error.response.data?.errors;
+          if (validationErrors) {
+              const firstErrorKey = Object.keys(validationErrors)[0];
+              const firstErrorMessage = validationErrors[firstErrorKey][0];
+              
+              // 🔑 PERBAIKAN LOGIKA DUPLIKASI
+              if (firstErrorKey.includes('nik') && firstErrorMessage.includes('sudah ada')) {
+                  errorMessage = 'NIK/Kitas sudah terdaftar di sistem. Mohon cek kembali.';
+              } else if (firstErrorKey.includes('email') && firstErrorMessage.includes('sudah ada')) {
+                  errorMessage = 'Email sudah terdaftar di sistem. Mohon cek kembali.';
+              } else if (firstErrorKey.includes('phone_number') && firstErrorMessage.includes('sudah ada')) {
+                  errorMessage = 'Nomor Ponsel sudah terdaftar di sistem. Mohon cek kembali.';
+              } else {
+                  errorMessage = firstErrorMessage;
+              }
+          }
+          isWarning = true;
+
+      } else if (error.response?.status === 500) {
+        // Handle 500 (Server Error) - Periksa jika pesan di dalamnya adalah Duplikasi/Missing Field
+        const serverMessage = error.response.data?.message || '';
+        const errorDetail = error.response.data?.error_detail || '';
+
+        if (serverMessage.includes('Gagal menyimpan profile: Ada field wajib database yang kosong')) {
+          errorMessage = 'Terjadi kesalahan server: Ada data wajib yang belum terisi lengkap atau format tanggal salah (YYYY-MM-DD).';
+          isWarning = true; // Dianggap peringatan karena masalah input/field kosong
+        } else if (errorDetail.includes('Duplicate entry') || serverMessage.includes('Duplicate entry')) {
+          // 🔑 PERBAIKAN LOGIKA DUPLIKASI
+          errorMessage = 'Terdapat duplikasi data NIK/Email/Nomor Ponsel. Mohon cek kembali data Anda.';
+          isWarning = true;
+        }
+      }
+      
+      if (isWarning) {
+          Alert.alert('Peringatan Data Profil', errorMessage);
+      } else {
+          Alert.alert('Error', errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -882,10 +1001,10 @@ const PendaftaranScreen = () => {
       {/* Background Logo */}
       <Image source={require('../../assets/images/logo-ugn.png')} style={PendaftarStyles.backgroundLogo} resizeMode="contain" />
 
-      {/* Modals (Tidak diubah, sudah benar) */}
+      {/* Modals (Perbaikan pada onClose untuk reset openDropdown) */}
       <DropdownModal 
         visible={showProdi1Modal} 
-        onClose={() => setShowProdi1Modal(false)} 
+        onClose={() => { setShowProdi1Modal(false); setOpenDropdown(null); }} // 🔑 PERBAIKAN: Reset openDropdown
         options={programs.map(p => p.name)} 
         onSelect={(value) => { 
           const selected = programs.find(p => p.name === value); 
@@ -895,10 +1014,40 @@ const PendaftaranScreen = () => {
         }} 
         selectedValue={getProgramNameById(prodiPilihan1)} 
       />
-      <DropdownModal visible={showProdi2Modal} onClose={() => setShowProdi2Modal(false)} options={programs.map(p => p.name)} onSelect={(value) => { const selected = programs.find(p => p.name === value); if (selected) setProdiPilihan2(selected.id_program); }} selectedValue={getProgramNameById(prodiPilihan2)} />
-      <DropdownModal visible={showProdi3Modal} onClose={() => setShowProdi3Modal(false)} options={programs.map(p => p.name)} onSelect={(value) => { const selected = programs.find(p => p.name === value); if (selected) setProdiPilihan3(selected.id_program); }} selectedValue={getProgramNameById(prodiPilihan3)} />
-      <DropdownModal visible={showJenisKelaminModal} onClose={() => setShowJenisKelaminModal(false)} options={JENIS_KELAMIN_OPTIONS} onSelect={setJenisKelamin} selectedValue={jenisKelamin} />
-      <DropdownModal visible={showKewarganegaraanModal} onClose={() => setShowKewarganegaraanModal(false)} options={KEWARGANEGARAAN_OPTIONS} onSelect={setKewarganegaraan} selectedValue={kewarganegaraan} />
+      <DropdownModal 
+        visible={showProdi2Modal} 
+        onClose={() => { setShowProdi2Modal(false); setOpenDropdown(null); }} // 🔑 PERBAIKAN: Reset openDropdown
+        options={programs.map(p => p.name)} 
+        onSelect={(value) => { 
+          const selected = programs.find(p => p.name === value); 
+          if (selected) setProdiPilihan2(selected.id_program); 
+        }} 
+        selectedValue={getProgramNameById(prodiPilihan2)} 
+      />
+      <DropdownModal 
+        visible={showProdi3Modal} 
+        onClose={() => { setShowProdi3Modal(false); setOpenDropdown(null); }} // 🔑 PERBAIKAN: Reset openDropdown
+        options={programs.map(p => p.name)} 
+        onSelect={(value) => { 
+          const selected = programs.find(p => p.name === value); 
+          if (selected) setProdiPilihan3(selected.id_program); 
+        }} 
+        selectedValue={getProgramNameById(prodiPilihan3)} 
+      />
+      <DropdownModal 
+        visible={showJenisKelaminModal} 
+        onClose={() => { setShowJenisKelaminModal(false); setOpenDropdown(null); }} // 🔑 PERBAIKAN: Reset openDropdown
+        options={JENIS_KELAMIN_OPTIONS} 
+        onSelect={setJenisKelamin} 
+        selectedValue={jenisKelamin} 
+      />
+      <DropdownModal 
+        visible={showKewarganegaraanModal} 
+        onClose={() => { setShowKewarganegaraanModal(false); setOpenDropdown(null); }} // 🔑 PERBAIKAN: Reset openDropdown
+        options={KEWARGANEGARAAN_OPTIONS} 
+        onSelect={setKewarganegaraan} 
+        selectedValue={kewarganegaraan} 
+      />
     </SafeAreaView>
   );
 };

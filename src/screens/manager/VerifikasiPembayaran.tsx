@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,129 +8,249 @@ import {
   StyleSheet,
   ImageBackground,
   Alert,
-  Modal, // Import Modal
+  Modal,
+  ActivityIndicator,
+  TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
-// ASUMSI path styles dan navigator
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Styles & Services
 import { ManagerStyles } from '../../styles/ManagerStyles'; 
 import { AdminStyles } from '../../styles/AdminStyles'; 
 import { ManagerStackParamList } from '../../navigation/ManagerNavigator'; 
+import { managerService, PaymentDetail } from '../../services/managerService';
 
-// Definisi Tipe Navigasi
 type VerifikasiPembayaranNavigationProp = NativeStackNavigationProp<ManagerStackParamList, 'VerifikasiPembayaran'>;
 
-// Data Dummy untuk Pembayaran
-const paymentData = {
-  name: "John Doe",
-  amount: "Rp 550.000",
-  method: "Bank Transfer (BCA)",
-  txn: "#TXN123456789",
-  date: "15 Dec 2024, 14:30",
-  status: "Pending",
-  receiptFrom: "John Doe (123-456-789)",
-  receiptTo: "SIA Account (987-654-321)",
-  receiptAmount: "Rp 550.000",
-  receiptImage: require('../../assets/icons/File.png'), // ASUMSI Anda memiliki gambar receipt
-};
-
 // ============================================
-// Komponen Modal View Image
+// 1. KOMPONEN MODAL AKSI (VERIFIKASI/TOLAK)
 // ============================================
-interface ImageViewModalProps {
+interface ActionModalProps {
   isVisible: boolean;
   onClose: () => void;
+  onConfirm: (reason: string | null) => void;
+  actionType: 'Verify' | 'Reject' | null;
+  isLoading: boolean;
 }
 
-const ImageViewModal: React.FC<ImageViewModalProps> = ({ isVisible, onClose }) => {
+const ActionModal: React.FC<ActionModalProps> = ({ isVisible, onClose, onConfirm, actionType, isLoading }) => {
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (isVisible) setReason('');
+  }, [isVisible]);
+
+  if (!actionType) return null;
+
+  const isReject = actionType === 'Reject';
+  const title = isReject ? 'Tolak Pembayaran' : 'Verifikasi Pembayaran';
+  const message = isReject 
+    ? 'Berikan alasan penolakan pembayaran ini.'
+    : 'Apakah Anda yakin data pembayaran ini valid dan sesuai?';
+  const buttonText = isReject ? 'Tolak Pembayaran' : 'Ya, Verifikasi';
+  const confirmColors = isReject ? ['#BE0414', '#BE0414'] : ['#189653', '#4CAF50'];
+
   return (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={isVisible}
-      onRequestClose={onClose}
-    >
+    <Modal animationType="fade" transparent={true} visible={isVisible} onRequestClose={onClose}>
       <View style={localStyles.modalCenteredView}>
-        {/* Modal Card dengan Gradient Background */}
         <LinearGradient
-          colors={['#DABC4E', '#F5EFD3']} // Gradient yang mendekati warna emas/krem
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={localStyles.imageModalView}
+          colors={['#F5E6C8', '#C4A962']}
+          style={localStyles.modalGradientBackground}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
         >
-          {/* Placeholder Gambar Bukti Transfer */}
-          <View style={localStyles.imagePlaceholder}>
-            {/* Di aplikasi nyata, di sini akan ada komponen <Image> yang memuat
-              gambar bukti transfer berukuran penuh. Kami mengganti placeholder 
-              teks dengan cross-box sesuai desain
-            */}
-                <Image
-                  source={require('../../assets/icons/Image.png')}
-                  style={localStyles.crossLine1}
-                  resizeMode="contain"
-                />
-            </View>
+          <Text style={localStyles.modalTitle}>{title}</Text>
           
-          {/* Tombol Done (Menggunakan LinearGradient) */}
-          <TouchableOpacity onPress={onClose} style={localStyles.modalDoneButtonContainer}>
-            <LinearGradient
-              colors={['#DABC4E', '#F5EFD3']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={localStyles.modalDoneButton}
+          {!isReject ? (
+             <View style={localStyles.approveContent}>
+                <Image source={require('../../assets/icons/Group 13886 (1).png')} style={localStyles.mainIconSmall} resizeMode="contain"/>
+                <Text style={localStyles.modalMessage}>{message}</Text>
+             </View>
+          ) : (
+            <>
+              <Text style={localStyles.modalMessageSmall}>{message}</Text>
+              <TextInput
+                style={localStyles.reasonInput}
+                onChangeText={setReason}
+                value={reason}
+                multiline
+                numberOfLines={3}
+                placeholder="Contoh: Nominal tidak sesuai / Bukti buram"
+                placeholderTextColor="#A9A9A9"
+              />
+            </>
+          )}
+
+          <View style={localStyles.buttonContainer}>
+            <TouchableOpacity onPress={onClose} style={localStyles.buttonWrapper} disabled={isLoading}>
+              <LinearGradient colors={['#D3D3D3', '#C0C0C0']} style={localStyles.buttonStyle}>
+                <Text style={[localStyles.buttonText, {color:'#000'}]}>Batal</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={() => onConfirm(isReject ? reason : null)} 
+              style={localStyles.buttonWrapper} 
+              disabled={isLoading || (isReject && !reason.trim())}
             >
-              <Text style={localStyles.modalDoneButtonText}>Done</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient colors={confirmColors} style={localStyles.buttonStyle}>
+                {isLoading ? <ActivityIndicator color='white'/> : <Text style={localStyles.buttonText}>{buttonText}</Text>}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </LinearGradient>
       </View>
     </Modal>
   );
 };
 
-
+// ============================================
+// 2. MAIN SCREEN
+// ============================================
 const VerifikasiPembayaran = () => {
   const navigation = useNavigation<VerifikasiPembayaranNavigationProp>();
-  const [isImageModalVisible, setIsImageModalVisible] = useState(false); // State Modal Gambar
+  // @ts-ignore
+  const route = useRoute<any>();
+  const { id_profile, name } = route.params;
 
-  // Fungsi untuk aksi verifikasi
-  const handleVerify = () => {
-    Alert.alert("Verifikasi", "Dokumen pembayaran siap untuk diverifikasi.");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [payment, setPayment] = useState<PaymentDetail | null>(null);
+  
+  // State Modal Aksi
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [currentAction, setCurrentAction] = useState<'Verify' | 'Reject' | null>(null);
+
+  // 1. FETCH DATA PEMBAYARAN
+  const fetchPayment = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await managerService.getApplicantPayment(id_profile);
+      if (response.success && response.data) {
+        setPayment(response.data);
+      } else {
+        Alert.alert("Info", "Pendaftar ini belum melakukan pembayaran atau data tidak ditemukan.");
+        navigation.goBack();
+      }
+    } catch (error: any) {
+        // Jika 404, berarti belum upload
+        console.log("Payment fetch error:", error);
+        Alert.alert("Info", "Data pembayaran tidak ditemukan.");
+        navigation.goBack();
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id_profile, navigation]);
+
+  useEffect(() => {
+    fetchPayment();
+  }, [fetchPayment]);
+
+  // 2. HANDLER TOMBOL UI
+  const triggerVerify = () => {
+    setCurrentAction('Verify');
+    setShowActionModal(true);
   };
 
-  // Fungsi untuk aksi tolak
-  const handleTolak = () => {
-    Alert.alert("Tolak", "Konfirmasi tolak pembayaran.");
+  const triggerReject = () => {
+    setCurrentAction('Reject');
+    setShowActionModal(true);
   };
 
-  // Fungsi untuk aksi Accept Pendaftar
-  const handleAccept = () => {
-    Alert.alert("Lulus", "Pendaftar dinyatakan lulus.");
-    // TODO: Tambahkan navigasi ke halaman selanjutnya atau API call
+  // 3. EKSEKUSI API VERIFIKASI / TOLAK PEMBAYARAN
+  const executePaymentAction = async (reason: string | null) => {
+    if (!payment) return;
+    setIsProcessing(true);
+    try {
+      const status = currentAction === 'Verify' ? 'verified' : 'rejected';
+      
+      await managerService.verifyPayment(payment.id, {
+        status: status,
+        rejection_reason: reason || undefined
+      });
+
+      Alert.alert("Sukses", `Pembayaran berhasil di-${status === 'verified' ? 'verifikasi' : 'tolak'}.`);
+      setShowActionModal(false);
+      fetchPayment(); // Refresh data
+    } catch (error: any) {
+      Alert.alert("Gagal", error.message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  // Fungsi untuk aksi Reject Pendaftar
-  const handleReject = () => {
-    Alert.alert("Tidak Lulus", "Pendaftar dinyatakan tidak lulus.");
-    // TODO: Tambahkan navigasi ke halaman selanjutnya atau API call
+  // 4. HANDLER VIEW IMAGE (SECURE)
+  const handleViewFullImage = async () => {
+    if (!payment?.payment_proof_file) {
+      Alert.alert("Error", "File bukti transfer tidak tersedia.");
+      return;
+    }
+
+    try {
+      const token = await AsyncStorage.getItem('token');
+      // Asumsi API endpoint untuk file private
+      // Sesuaikan URL ini dengan route di Laravel: Route::get('admin/payment-file/{id}', ...)
+      const BASE_URL = 'http://172.27.86.208:8000/api'; 
+      const url = `${BASE_URL}/admin/payment-file/${payment.id}?token=${token}`;
+      
+      Linking.openURL(url).catch(err => {
+        console.error("Failed opening URL:", err);
+        Alert.alert("Error", "Tidak dapat membuka gambar.");
+      });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // Fungsi untuk melihat gambar penuh (Diperbarui untuk menampilkan modal)
-  const handleViewFullImage = () => {
-    setIsImageModalVisible(true);
+  // 5. HANDLER FINAL DECISION (LULUS/TIDAK LULUS PENDAFTAR)
+  const handleFinalDecision = async (status: 'approved' | 'rejected') => {
+    if (!payment || payment.status !== 'verified') {
+        Alert.alert("Perhatian", "Pastikan pembayaran sudah diverifikasi (status: verified) sebelum meluluskan pendaftar.");
+        return;
+    }
+
+    Alert.alert(
+      "Konfirmasi",
+      `Apakah Anda yakin menyatakan pendaftar ini ${status === 'approved' ? 'LULUS' : 'TIDAK LULUS'}?`,
+      [
+        { text: "Batal", style: 'cancel' },
+        { 
+          text: "Ya, Lanjutkan", 
+          onPress: async () => {
+            setIsProcessing(true);
+            try {
+              await managerService.updateApplicantStatus(id_profile, {
+                status: status,
+                notes: status === 'approved' ? 'Lulus Seleksi Administrasi & Pembayaran' : 'Tidak Lulus Seleksi'
+              });
+              Alert.alert("Sukses", `Status pendaftar diperbarui menjadi: ${status.toUpperCase()}`);
+              navigation.navigate('KelolaPendaftaran'); // Kembali ke list
+            } catch (error: any) {
+              Alert.alert("Gagal", error.message);
+            } finally {
+              setIsProcessing(false);
+            }
+          }
+        }
+      ]
+    );
   };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[AdminStyles.container, {justifyContent:'center', alignItems:'center'}]}>
+        <ActivityIndicator size="large" color="#DABC4E" />
+      </SafeAreaView>
+    );
+  }
 
   return (
       <SafeAreaView style={AdminStyles.container} edges={['top', 'bottom']}>
-        {/* Background Logo */}
-        <Image
-          source={require('../../assets/images/logo-ugn.png')}
-          style={AdminStyles.backgroundLogo}
-          resizeMode="contain"
-        />
-
         {/* Header */}
           <View style={AdminStyles.headerContainer}>
             <ImageBackground
@@ -139,7 +259,6 @@ const VerifikasiPembayaran = () => {
               resizeMode="cover"
             >
               <View style={AdminStyles.headerContent}>
-                {/* Tombol Back */}
                 <TouchableOpacity
                   style={ManagerStyles.headerIconContainerLeft}
                   onPress={() => navigation.goBack()}
@@ -151,72 +270,71 @@ const VerifikasiPembayaran = () => {
                   />
                 </TouchableOpacity>
                 <Text style={localStyles.headerTitle}>Verifikasi Pembayaran</Text> 
-                <View style={ManagerStyles.headerIconContainerLeft} /> {/* Spacer */}
+                <View style={ManagerStyles.headerIconContainerLeft} />
               </View>
             </ImageBackground>
           </View>
         
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={localStyles.scrollContent}>
           
-          
-
           {/* Label Verifikasi Pembayaran */}
           <View style={localStyles.verifikasiLabelContainer}>
-            <Text style={localStyles.verifikasiLabelText}>Verifikasi Pembayaran</Text>
+            <Text style={localStyles.verifikasiLabelText}>Verifikasi Pembayaran: {name}</Text>
           </View>
           
           {/* CARD 1: Detail Pembayaran */}
           <View style={[localStyles.cardBase, localStyles.paymentDetailCard]}>
-            <View style={localStyles.statusContainer}>
-              <Text style={localStyles.statusText}>{paymentData.status}</Text>
+            <View style={[localStyles.statusContainer, 
+                payment?.status === 'verified' ? {backgroundColor: '#189653'} : 
+                payment?.status === 'rejected' ? {backgroundColor: '#BE0414'} : {}
+            ]}>
+              <Text style={localStyles.statusText}>{payment?.status?.toUpperCase() || 'UNKNOWN'}</Text>
             </View>
-            <Text style={localStyles.paymentName}>{paymentData.name}</Text>
+            
+            <Text style={localStyles.paymentName}>{payment?.payment_code}</Text>
             
             {/* Detail List */}
             <View style={localStyles.detailRow}>
               <Image source={require('../../assets/icons/material-symbols_money-bag-rounded.png')} style={localStyles.detailIcon} />
-              <Text style={localStyles.detailText}>Jumlah: {paymentData.amount}</Text>
+              <Text style={localStyles.detailText}>Jumlah: Rp {payment?.paid_amount?.toLocaleString()}</Text>
             </View>
             <View style={localStyles.detailRow}>
               <Image source={require('../../assets/icons/mingcute_bank-fill.png')} style={localStyles.detailIcon} />
-              <Text style={localStyles.detailText}>Method: {paymentData.method}</Text>
-            </View>
-            <View style={localStyles.detailRow}>
-              <Image source={require('../../assets/icons/famicons_pricetags.png')} style={localStyles.detailIcon} />
-              <Text style={localStyles.detailText}>TXN: {paymentData.txn}</Text>
+              <Text style={localStyles.detailText}>Metode: {payment?.payment_method_name || 'Bank Transfer'}</Text>
             </View>
             <View style={localStyles.detailRow}>
               <Image source={require('../../assets/icons/stash_data-date-duotone.png')} style={localStyles.detailIcon} />
-              <Text style={localStyles.detailText}>Date: {paymentData.date}</Text>
+              <Text style={localStyles.detailText}>Tanggal: {payment?.payment_date}</Text>
             </View>
 
-            {/* Tombol Aksi */}
-            <View style={localStyles.actionButtonContainer}>
-              <TouchableOpacity style={localStyles.verifyButton} onPress={handleVerify}>
-                <Text style={localStyles.verifyButtonText}>Verifikasi</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={localStyles.tolakButton} onPress={handleTolak}>
-                <Text style={localStyles.tolakButtonText}>Tolak</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Tombol Aksi (Hanya muncul jika belum verified/rejected) */}
+            {payment?.status !== 'verified' && payment?.status !== 'rejected' && (
+                <View style={localStyles.actionButtonContainer}>
+                <TouchableOpacity style={localStyles.verifyButton} onPress={triggerVerify}>
+                    <Text style={localStyles.verifyButtonText}>Verifikasi</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={localStyles.tolakButton} onPress={triggerReject}>
+                    <Text style={localStyles.tolakButtonText}>Tolak</Text>
+                </TouchableOpacity>
+                </View>
+            )}
           </View>
 
           {/* CARD 2: Transfer Receipt Preview */}
           <View style={[localStyles.cardBase, localStyles.receiptPreviewCard]}>
             <View style={localStyles.receiptHeader}>
               <Image source={require('../../assets/icons/File.png')} style={localStyles.receiptFileIcon} />
-              <Text style={localStyles.receiptHeaderText}>Transfer Receipt Preview</Text>
+              <Text style={localStyles.receiptHeaderText}>Bukti Transfer</Text>
             </View>
 
             <View style={localStyles.receiptInfoContainer}>
-                <Text style={localStyles.receiptInfoText}>From : {paymentData.receiptFrom}</Text>
-                <Text style={localStyles.receiptInfoText}>To : {paymentData.receiptTo}</Text>
-                <Text style={localStyles.receiptInfoText}>Jumlah: {paymentData.receiptAmount}</Text>
+                <Text style={localStyles.receiptInfoText}>Pengirim: {payment?.sender_account_holder || '-'}</Text>
+                <Text style={localStyles.receiptInfoText}>Bank: {payment?.sender_bank || '-'} ({payment?.sender_account_number || '-'})</Text>
             </View>
 
             <TouchableOpacity style={localStyles.viewImageButton} onPress={handleViewFullImage}>
               <Image source={require('../../assets/icons/material-symbols_search-rounded.png')} style={localStyles.magnifyIcon} />
-              <Text style={localStyles.viewImageText}>View Full Image</Text>
+              <Text style={localStyles.viewImageText}>Lihat Bukti Full</Text>
             </TouchableOpacity>
           </View>
 
@@ -228,33 +346,54 @@ const VerifikasiPembayaran = () => {
                 end={{ x: 1, y: 0.5 }}
                 style={localStyles.verifikasiLabelContainer1}
             >
-            <Text style={localStyles.choiceSeparator}>Silahkan tentukan apakah pendaftar lulus/tidak</Text>
+            <Text style={localStyles.choiceSeparator}>Keputusan Akhir Pendaftaran</Text>
             </LinearGradient>
           </View>
 
-          {/* CARD 3: Final Acceptance */}
-          <View style={[localStyles.cardBase, localStyles.finalActionCard]}>
-            <TouchableOpacity style={localStyles.acceptPendaftarButton} onPress={handleAccept}>
-              <Text style={localStyles.acceptPendaftarText}>Accept Pendaftar</Text>
+          {/* CARD 3: Final Acceptance (Hanya aktif jika pembayaran verified) */}
+          <View style={[localStyles.cardBase, localStyles.finalActionCard, 
+             (payment?.status !== 'verified') && {opacity: 0.5} 
+          ]}>
+            <TouchableOpacity 
+                style={localStyles.acceptPendaftarButton} 
+                onPress={() => handleFinalDecision('approved')}
+                disabled={payment?.status !== 'verified' || isProcessing}
+            >
+              <Text style={localStyles.acceptPendaftarText}>LULUSKAN PENDAFTAR</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={localStyles.rejectPendaftarButton} onPress={handleReject}>
-              <Text style={localStyles.rejectPendaftarText}>Reject Pendaftar</Text>
+            
+            <TouchableOpacity 
+                style={localStyles.rejectPendaftarButton} 
+                onPress={() => handleFinalDecision('rejected')}
+                disabled={isProcessing}
+            >
+              <Text style={localStyles.rejectPendaftarText}>TIDAK LULUS</Text>
             </TouchableOpacity>
           </View>
 
           <View style={{ height: 40 }} />
         </ScrollView>
         
-        {/* Panggil Komponen Modal */}
-        <ImageViewModal
-            isVisible={isImageModalVisible}
-            onClose={() => setIsImageModalVisible(false)}
+        {/* Modal Konfirmasi Verify/Reject */}
+        <ActionModal 
+            isVisible={showActionModal}
+            actionType={currentAction}
+            onClose={() => setShowActionModal(false)}
+            onConfirm={executePaymentAction}
+            isLoading={isProcessing}
+        />
+
+        {/* Logo Background */}
+        <Image
+          source={require('../../assets/images/logo-ugn.png')}
+          style={AdminStyles.backgroundLogo}
+          resizeMode="contain"
         />
     </SafeAreaView>
     );
 };
   
-// Style Lokal untuk Verifikasi Pembayaran
+// Style Lokal
 const localStyles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
@@ -265,16 +404,14 @@ const localStyles = StyleSheet.create({
     ...AdminStyles.headerTitle,
     textAlign: 'center',
     flex: 1,
-    color: '#000000ff', // Ubah warna judul jika perlu
+    color: '#000000ff', 
     left: 8,
   },
-
-  // --- Label Verifikasi Pembayaran ---
   verifikasiLabelContainer1:{
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     backgroundColor: '#DABC4E',
     borderRadius: 18,
-    paddingHorizontal: 12,
+    paddingHorizontal: 20,
     marginBottom: 20,
     borderWidth: 2,
     borderColor: '#e9bf26ff',
@@ -297,20 +434,16 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#ffffffff',
   },
-  
-  // --- Style Dasar Card ---
   cardBase: {
     width: '100%',
     borderRadius: 15,
     padding: 20,
     marginBottom: 20,
-    backgroundColor: '#F5E6C8', // Warna latar belakang card
+    backgroundColor: '#F5E6C8', 
     borderWidth: 3,
-    borderColor: '#C4A962', // Border kuning/emas
+    borderColor: '#C4A962', 
     alignItems: 'flex-start',
   },
-  
-  // --- CARD 1: Detail Pembayaran ---
   paymentDetailCard: {
     alignItems: 'stretch',
     paddingTop: 10,
@@ -336,8 +469,8 @@ const localStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000000',
-    marginBottom: 10,
-    marginTop: 10,
+    marginBottom: 8,
+    marginTop: 35,
   },
   detailRow: {
     flexDirection: 'row',
@@ -385,10 +518,7 @@ const localStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-
-  // --- CARD 2: Transfer Receipt Preview ---
   receiptPreviewCard: {
-    // Styling tambahan jika diperlukan
   },
   receiptHeader: {
     flexDirection: 'row',
@@ -438,17 +568,14 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#ffffffff',
   },
-
-  // --- Pemisah Pilihan ---
   choiceSeparator: {
     fontSize: 14,
-    color: '#000000ff', // Warna teks harus kontras dengan background gelap
+    fontWeight: 'bold',
+    color: '#000000ff', 
     marginBottom: 15,
     textAlign: 'center',
     top: 6,
-    },
-
-  // --- CARD 3: Final Acceptance ---
+  },
   finalActionCard: {
     alignItems: 'stretch',
     padding: 20,
@@ -480,105 +607,93 @@ const localStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-
-  // ============================================
-  //  STYLES MODAL VIEW IMAGE
-  // ============================================
+  
+  // MODAL STYLES
   modalCenteredView: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)', // Latar belakang gelap transparan
+    backgroundColor: 'rgba(0, 0, 0, 0.6)', 
   },
-  imageModalView: {
-    // Menggunakan LinearGradient sebagai background, style ini mendefinisikan bentuknya
+  modalGradientBackground: {
     margin: 20,
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 20,
+    padding: 25,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
-    width: '85%', 
-    height: '60%', 
-    borderWidth: 3,
-    borderColor: '#004225', // Border hijau tua
-  },
-  imagePlaceholder: {
-    flex: 1,
-    width: '100%',
-    backgroundColor: '#F5EFD3', 
-    borderRadius: 8,
-    marginBottom: 40,
-    marginTop: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: '85%',
     borderWidth: 1,
-    borderColor: '#00000050',
-    // Mengganti placeholder teks dengan cross-box
-    
-    overflow: 'hidden',
+    borderColor: '#000',
   },
-  // Gaya untuk membuat kotak silang (X)
-  crossBox: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  crossLine1: {
-    position: 'absolute',
-  },
-  crossLine2: {
-    position: 'absolute',
-    width: '100%',
-    height: 2,
-    backgroundColor: '#000000',
-    transform: [{ rotate: '-45deg' }],
-  },
-  placeholderText: {
-    fontSize: 16,
-    color: '#00000050',
-    textAlign: 'center',
-  },
-  modalDoneButtonContainer: {
-    width: '80%',
-    // Container ini hanya untuk mengatur lebar tombol agar mudah diatur di LinearGradient
-  },
-  modalDoneButton: {
-    // Style tombol Done sekarang hanya untuk bentuk dan border/shadow
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 30,
-    elevation: 2,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#000000',
-  },
-  modalDoneButtonText: {
-    // Warna teks agar kontras dengan gradient
-    color: '#000000',
+  modalTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
+    color: '#004225',
+    marginBottom: 15,
     textAlign: 'center',
-    fontSize: 16,
   },
-  // Style yang tidak relevan dengan halaman ini (dihapus/diabaikan)
-  satu: {},
-  managerUsersHeader: {},
-  managerUsersText: {},
-  addButton: {},
-  addIcon: {},
-  addText: {},
-  managerCard: {},
-  managerIcon: {},
-  managerInfo: {},
-  managerName: {},
-  managerRole: {},
+  approveContent: {
+    alignItems: 'center',
+    marginBottom: 20,
+    padding: 15,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#189653',
+    borderStyle: 'dashed',
+  },
+  mainIconSmall: {
+    width: 60,
+    height: 60,
+    marginBottom: 10,
+  },
+  modalMessage: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#333',
+  },
+  modalMessageSmall: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 10,
+  },
+  reasonInput: {
+    width: '100%',
+    minHeight: 80,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C4A962',
+    padding: 10,
+    marginBottom: 20,
+    textAlignVertical: 'top',
+    color: '#000',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  buttonWrapper: {
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  buttonStyle: {
+    borderRadius: 50,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#000',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
 });
   
 export default VerifikasiPembayaran;

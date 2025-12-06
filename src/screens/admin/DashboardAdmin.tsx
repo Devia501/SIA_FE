@@ -1,6 +1,6 @@
-// src/screens/admin/DashboardAdmin.tsx (Setelah dikurangi styles umum)
+// src/screens/admin/DashboardAdmin.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,15 +11,19 @@ import {
   StyleSheet,
   Dimensions,
   Alert, 
+  ActivityIndicator, // ✅ Tambahkan ActivityIndicator
+  RefreshControl, // ✅ Tambahkan RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native'; // ✅ Tambahkan useIsFocused
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AdminStackParamList } from '../../navigation/AdminNavigator';
 import { useAuth } from '../../contexts/AuthContext'; 
 import LinearGradient from 'react-native-linear-gradient';
-// Import AdminStyles yang baru
 import { AdminStyles } from '../../styles/AdminStyles'; 
+
+// ✅ IMPORT SERVICE
+import { adminService, Statistics } from '../../services/managerService'; // Menggunakan tipe dari managerService (sama)
 
 const { width } = Dimensions.get('window');
 
@@ -28,6 +32,39 @@ type DashboardAdminNavigationProp = NativeStackNavigationProp<AdminStackParamLis
 const DashboardAdmin = () => {
   const navigation = useNavigation<DashboardAdminNavigationProp>();
   const { logout, user } = useAuth(); 
+  const isFocused = useIsFocused(); // ✅ Hook untuk deteksi fokus layar
+
+  // ✅ STATE BARU
+  const [statistics, setStatistics] = useState<Statistics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 🔄 FUNGSI LOAD STATISTIK
+  const loadStatistics = useCallback(async () => {
+    try {
+      // Menggunakan adminService.getStatistics (yang memanggil endpoint sama dengan manager)
+      const response = await adminService.getStatistics();
+      setStatistics(response.data);
+    } catch (error: any) {
+      console.error('❌ Gagal memuat statistik admin:', error);
+      // Opsional: Alert error jika perlu, tapi biasanya silent fail lebih baik di dashboard
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // ✅ Load data saat awal dan saat layar fokus kembali
+  useEffect(() => {
+    if (isFocused) {
+        loadStatistics();
+    }
+  }, [isFocused, loadStatistics]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadStatistics();
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -39,6 +76,17 @@ const DashboardAdmin = () => {
       ]
     );
   };
+
+  // ✅ DATA DINAMIS
+  const totalPendaftar = statistics?.total ?? 0;
+  const totalApproved = statistics?.approved ?? 0;
+  const totalRejected = statistics?.rejected ?? 0;
+  const totalPending = statistics?.submitted ?? 0; // Pending = Submitted
+
+  // Hitung Growth Rate Sederhana (Contoh: Disetujui / Total)
+  const growthRate = totalPendaftar > 0 
+    ? Math.round((totalApproved / totalPendaftar) * 100) 
+    : 0;
 
   return (
     <SafeAreaView style={AdminStyles.container} edges={['top']}>
@@ -52,7 +100,6 @@ const DashboardAdmin = () => {
           >
             <View style={localStyles.headerContent}>
               <Text style={localStyles.headerTitle}>Admin Dashboard</Text>
-              {/* TOMBOL LOGOUT ICON di KANAN ATAS */}
               <TouchableOpacity
                 style={localStyles.logoutIconContainer}
                 onPress={handleLogout}
@@ -63,63 +110,77 @@ const DashboardAdmin = () => {
                   resizeMode="contain"
                 />
               </TouchableOpacity>
-              {/* AKHIR TOMBOL LOGOUT ICON */}
             </View>
           </ImageBackground>
         </View>
-      <ScrollView showsVerticalScrollIndicator={false}>
+
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DABC4E']} />
+        }
+      >
 
         {/* Content */}
         <View style={localStyles.content}>
           {/* Greeting */}
           <View style={localStyles.greetingHeader}>
-            {/* Menggunakan data user?.name */}
-            <Text style={localStyles.greetingText}>Selamat datang, {user?.name || 'admin system'}!</Text>
+            <Text style={localStyles.greetingText}>Selamat datang, {user?.name || 'Admin'}!</Text>
             <View style={localStyles.notificationBadge}>
-              <Text style={localStyles.notificationText}>0</Text>
+              {/* ✅ Notifikasi jumlah pending */}
+              <Text style={localStyles.notificationText}>{totalPending}</Text>
             </View>
           </View>
 
-          {/* Total Pendaftar Card */}
-          <View style={localStyles.totalCard}>
-            <Text style={localStyles.totalNumber}>0</Text>
-            <Text style={localStyles.totalLabel}>Total Pendaftar</Text>
-          </View>
+          {isLoading ? (
+             <ActivityIndicator size="large" color="#DABC4E" style={{ marginTop: 50, marginBottom: 50 }} />
+          ) : (
+            <>
+                {/* Total Pendaftar Card */}
+                <View style={localStyles.totalCard}>
+                    <Text style={localStyles.totalNumber}>{totalPendaftar}</Text>
+                    <Text style={localStyles.totalLabel}>Total Pendaftar</Text>
+                </View>
 
-          {/* Stats Cards */}
-          <View style={localStyles.statsRow}>
-            <View style={localStyles.statCard}>
-              <Text style={localStyles.statNumber}>0</Text>
-              <Text style={localStyles.statLabel}>Disetujui</Text>
-            </View>
-            <View style={localStyles.statCard}>
-              <Text style={localStyles.statNumber}>0</Text>
-              <Text style={localStyles.statLabel}>Menunggu Review</Text>
-            </View>
-          </View>
+                {/* Stats Cards */}
+                <View style={localStyles.statsRow}>
+                    <View style={localStyles.statCard}>
+                    <Text style={localStyles.statNumber}>{totalApproved}</Text>
+                    <Text style={localStyles.statLabel}>Disetujui</Text>
+                    </View>
+                    <View style={localStyles.statCard}>
+                    <Text style={localStyles.statNumber}>{totalPending}</Text>
+                    <Text style={localStyles.statLabel}>Menunggu Review</Text>
+                    </View>
+                </View>
 
-          {/* Ditolak Card */}
-          <View style={localStyles.rejectCard}>
-            <Text style={localStyles.rejectNumber}>0</Text>
-            <Text style={localStyles.rejectLabel}>Ditolak</Text>
-          </View>
+                {/* Ditolak Card */}
+                <View style={localStyles.rejectCard}>
+                    <Text style={localStyles.rejectNumber}>{totalRejected}</Text>
+                    <Text style={localStyles.rejectLabel}>Ditolak</Text>
+                </View>
+            </>
+          )}
 
           {/* Action Buttons */}
           <TouchableOpacity
-          onPress={() => navigation.navigate('StatistikPendaftaran')}>
+            onPress={() => navigation.navigate('StatistikPendaftaran')}
+            disabled={isLoading}
+          >
             <LinearGradient
               colors={['#DABC4E', '#EFE3B0']}
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 1 }}
               style={localStyles.actionButton}
               >
-              <Text style={localStyles.actionButtonText}>Kelola Pendaftaran</Text>
+              <Text style={localStyles.actionButtonText}>Lihat Statistik Detail</Text>
             </LinearGradient>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={localStyles.actionButtonSecondary}
             onPress={() => navigation.navigate('AddManager')}
+            disabled={isLoading}
           >
             <Text style={localStyles.actionButtonText}>Kelola Manager</Text>
           </TouchableOpacity>
@@ -144,7 +205,7 @@ const DashboardAdmin = () => {
                 />
                 <Text style={localStyles.quickStatLabel}>Total Pendaftaran</Text>
               </View>
-              <Text style={localStyles.quickStatValue}>Rp 0</Text>
+              <Text style={localStyles.quickStatValue}>{totalPendaftar}</Text>
             </View>
 
             <View style={localStyles.quickStatItem}>
@@ -154,18 +215,17 @@ const DashboardAdmin = () => {
                   style={localStyles.quickStatIcon}
                   resizeMode="contain"
                 />
-                <Text style={localStyles.quickStatLabel}>Growth Rate</Text>
+                <Text style={localStyles.quickStatLabel}>Acceptance Rate</Text>
               </View>
-              <Text style={localStyles.quickStatValue}>0%</Text>
+              <Text style={localStyles.quickStatValue}>{growthRate}%</Text>
             </View>
           </View>
           
-          {/* Tambahkan padding di bawah agar konten tidak tertutup bottom nav fixed. */}
           <View style={AdminStyles.navSpacer} /> 
         </View>
       </ScrollView>
 
-      {/* Bottom Navigation - Fixed Position */}
+      {/* Bottom Navigation */}
       <View style={AdminStyles.bottomNav}>
         <TouchableOpacity style={AdminStyles.navItem}>
           <View style={AdminStyles.navItemActive}>
@@ -196,7 +256,7 @@ const DashboardAdmin = () => {
           />
         </TouchableOpacity>
       </View>
-      {/* Background Logo */}
+      
       <Image
         source={require('../../assets/images/logo-ugn.png')}
         style={AdminStyles.backgroundLogo}
@@ -206,7 +266,7 @@ const DashboardAdmin = () => {
   );
 };
 
-// Style lokal untuk DashboardAdmin
+// Style lokal untuk DashboardAdmin (Dipertahankan, hanya disesuaikan sedikit)
 const localStyles = StyleSheet.create({
   headerContainer: {
     height: 62,
@@ -256,10 +316,11 @@ const localStyles = StyleSheet.create({
   notificationBadge: {
     backgroundColor: '#FFF',
     borderRadius: 12,
-    width: 24,
+    minWidth: 24, // Agar bulat sempurna jika angka > 9
     height: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 5,
   },
   notificationText: {
     fontSize: 12,

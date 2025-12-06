@@ -14,7 +14,7 @@ import { // Tambahkan ActivityIndicator dan RefreshControl
   Alert, // Tambahkan Alert untuk notifikasi error
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useIsFocused } from '@react-navigation/native'; // Tambahkan useIsFocused
+import { useNavigation, useIsFocused } from '@react-navigation/native'; 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
 // Import Services dan Styles

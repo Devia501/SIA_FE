@@ -6,9 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // ============================================
 
 // ✅ PAKAI IP KOMPUTER/LAPTOP KAMU
-const API_URL = 'http://192.168.1.74:8000/api'; // ← PASTIKAN INI
-
-
+const API_URL = 'http://172.27.86.208:8000/api'; // ← PASTIKAN INI
 
 console.log('🌐 API URL:', API_URL);
 
@@ -57,7 +55,7 @@ api.interceptors.request.use(
 );
 
 // ============================================
-// 📥 RESPONSE INTERCEPTOR - PERBAIKAN HANDLING
+// 📥 RESPONSE INTERCEPTOR - FINAL FIX LOGGING
 // ============================================
 api.interceptors.response.use(
   (response) => {
@@ -82,8 +80,29 @@ api.interceptors.response.use(
     }
 
     const { status, data } = error.response;
-    console.error(`❌ ${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} - ${status}`);
-    console.error('Error response:', data);
+    
+    
+    // ========================================================
+    // 🔑 PERBAIKAN UTAMA: CEK & ABAIKAN LOGGING UNTUK 404 PROFIL
+    // ========================================================
+    const isProfileNotFound = status === 404 && originalRequest?.url?.includes('/registration/profile');
+
+    if (!isProfileNotFound) {
+      // Hanya log error ke konsol jika ini BUKAN error 404 pada endpoint profil
+      console.error(`❌ ${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} - ${status}`);
+      console.error('Error response:', data);
+    } else {
+      // Jika 404 profile, kita tetap log ke konsol, tapi tidak ke Error Overlay
+      console.log(`⚠️ Ignored 404 Profile Load: ${originalRequest?.url}`);
+    }
+    
+    // Jika 404 profile, kita tetap reject promise agar error DITERUSKAN 
+    // ke blok `catch` di komponen (PendaftaranScreen.tsx) untuk diabaikan.
+    if (isProfileNotFound) {
+        return Promise.reject(error);
+    }
+    // ========================================================
+
 
     // Handle 401 Unauthorized (token expired/invalid)
     if (status === 401 && !originalRequest._retry) {
@@ -130,11 +149,12 @@ api.interceptors.response.use(
       console.error('💥 Server Error:', data?.message);
       return Promise.reject({
         message: data?.message || 'Terjadi kesalahan server. Silakan coba lagi.',
-        status: 500
+        status: 500,
+        data: data 
       });
     }
 
-    // Handle other errors
+    // Handle other errors (General catch-all)
     return Promise.reject({
       message: data?.message || `Error ${status}: Terjadi kesalahan`,
       status: status,

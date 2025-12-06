@@ -17,14 +17,13 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ManagerStackParamList } from '../../navigation/ManagerNavigator';
 import { ManagerStyles, Colors } from '../../styles/ManagerStyles';
-import { managerService, Applicant } from '../../services/managerService.ts'; // 🆕 Import managerService
+import { managerService, Applicant, ApiResponse } from '../../services/managerService';
 
 type KelolaPendaftaranNavigationProp = NativeStackNavigationProp<
   ManagerStackParamList,
   'KelolaPendaftaran'
 >;
 
-// Komponen untuk Status Badge
 const StatusBadge = ({
   status,
 }: {
@@ -47,7 +46,7 @@ const StatusBadge = ({
       text = 'Pending';
       break;
     case 'draft':
-      backgroundColor = '#95a5a6'; // Gray color for draft
+      backgroundColor = '#95a5a6';
       text = 'Draft';
       break;
   }
@@ -59,11 +58,10 @@ const StatusBadge = ({
   );
 };
 
-// Komponen untuk Item Pendaftar
 interface RegistrationItemProps {
   data: Applicant;
   navigation: KelolaPendaftaranNavigationProp;
-  onStatusUpdate: () => void; // 🆕 Callback untuk refresh setelah update
+  onStatusUpdate: () => void;
 }
 
 const RegistrationItem = ({
@@ -88,7 +86,6 @@ const RegistrationItem = ({
       break;
   }
 
-  // 🆕 Handle Approve
   const handleApprove = async () => {
     Alert.alert(
       'Konfirmasi Approve',
@@ -102,10 +99,10 @@ const RegistrationItem = ({
             try {
               await managerService.updateApplicantStatus(data.id_profile, {
                 status: 'approved',
-                notes: 'Disetujui oleh manager',
+                notes: 'Disetujui oleh manager (Quick Approve)',
               });
               Alert.alert('Berhasil', 'Pendaftar berhasil disetujui');
-              onStatusUpdate(); // Refresh data
+              onStatusUpdate();
             } catch (error: any) {
               Alert.alert('Gagal', error.message || 'Gagal menyetujui pendaftar');
             } finally {
@@ -117,7 +114,6 @@ const RegistrationItem = ({
     );
   };
 
-  // 🆕 Handle Reject
   const handleReject = async () => {
     Alert.alert(
       'Konfirmasi Reject',
@@ -132,10 +128,10 @@ const RegistrationItem = ({
             try {
               await managerService.updateApplicantStatus(data.id_profile, {
                 status: 'rejected',
-                notes: 'Ditolak oleh manager',
+                notes: 'Ditolak oleh manager (Quick Reject)',
               });
               Alert.alert('Berhasil', 'Pendaftar berhasil ditolak');
-              onStatusUpdate(); // Refresh data
+              onStatusUpdate();
             } catch (error: any) {
               Alert.alert('Gagal', error.message || 'Gagal menolak pendaftar');
             } finally {
@@ -146,9 +142,21 @@ const RegistrationItem = ({
       ]
     );
   };
+  
+  const handleViewDetail = () => {
+    navigation.navigate('VerifikasiDokumen', {
+      id_profile: data.id_profile,
+      name: data.full_name,
+      email: data.email,
+      program_name: data.program_name,
+    } as any);
+  };
 
   return (
-    <View style={[styles.itemCard, { borderColor: cardColor }]}>
+    <TouchableOpacity 
+      onPress={handleViewDetail} 
+      style={[styles.itemCard, { borderColor: cardColor }]}
+    > 
       <Image
         source={require('../../assets/images/profile 3.png')}
         style={styles.itemImage}
@@ -165,7 +173,6 @@ const RegistrationItem = ({
       <View style={styles.itemStatusContainer}>
         <StatusBadge status={data.registration_status} />
 
-        {/* 🆕 Action Buttons - hanya tampil jika status masih submitted */}
         {data.registration_status === 'submitted' && !loading && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
@@ -186,23 +193,21 @@ const RegistrationItem = ({
 
         {loading && <ActivityIndicator size="small" color={Colors.secondary} />}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
 const KelolaPendaftaranScreen = () => {
   const navigation = useNavigation<KelolaPendaftaranNavigationProp>();
 
-  // 🆕 State management
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<
-    'all' | 'approved' | 'rejected' | 'submitted'
+    'all' | 'approved' | 'rejected' | 'submitted' | 'draft'
   >('all');
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 🆕 Fetch applicants dari API
   const fetchApplicants = async () => {
     try {
       const filters: any = {};
@@ -215,41 +220,37 @@ const KelolaPendaftaranScreen = () => {
         filters.search = searchQuery;
       }
 
-      const response = await managerService.getApplicants(filters);
+      const response: ApiResponse<Applicant[]> = await managerService.getApplicants(filters);
 
       if (response.success) {
         setApplicants(response.data);
       }
     } catch (error: any) {
       console.error('Error fetching applicants:', error);
-      Alert.alert('Error', 'Gagal memuat data pendaftar');
+      Alert.alert('Error', error.message || 'Gagal memuat data pendaftar');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // 🆕 Load data saat pertama kali
   useEffect(() => {
     fetchApplicants();
   }, [activeFilter, searchQuery]);
 
-  // 🆕 Reload saat screen di-focus
   useFocusEffect(
     useCallback(() => {
       fetchApplicants();
     }, [activeFilter, searchQuery])
   );
 
-  // 🆕 Handle pull to refresh
   const onRefresh = () => {
     setRefreshing(true);
     fetchApplicants();
   };
 
-  // 🆕 Filter button handler
   const handleFilterPress = (
-    filter: 'all' | 'approved' | 'rejected' | 'submitted'
+    filter: 'all' | 'approved' | 'rejected' | 'submitted' | 'draft'
   ) => {
     setActiveFilter(activeFilter === filter ? 'all' : filter);
   };
@@ -267,7 +268,6 @@ const KelolaPendaftaranScreen = () => {
           />
         }
       >
-        {/* Header */}
         <View style={ManagerStyles.headerContainer}>
           <ImageBackground
             source={require('../../assets/images/App Bar - Bottom.png')}
@@ -295,7 +295,6 @@ const KelolaPendaftaranScreen = () => {
           </ImageBackground>
         </View>
 
-        {/* Content */}
         <View style={ManagerStyles.content}>
           <View style={styles.summaryHeader}>
             <Text style={styles.summaryTitle}>Daftar Pendaftar</Text>
@@ -305,7 +304,6 @@ const KelolaPendaftaranScreen = () => {
             <Text style={styles.notificationText1}>total</Text>
           </View>
 
-          {/* Search Bar */}
           <View style={styles.searchContainer}>
             <Image
               source={require('../../assets/icons/material-symbols_search-rounded.png')}
@@ -321,7 +319,6 @@ const KelolaPendaftaranScreen = () => {
             />
           </View>
 
-          {/* Filter Buttons */}
           <View style={styles.filterContainer}>
             <TouchableOpacity
               style={[
@@ -369,7 +366,6 @@ const KelolaPendaftaranScreen = () => {
             </TouchableOpacity>
           </View>
 
-          {/* List Pendaftar */}
           <View style={styles.listContainer}>
             {loading ? (
               <View style={styles.loadingContainer}>
@@ -382,7 +378,7 @@ const KelolaPendaftaranScreen = () => {
                   key={item.id_profile}
                   data={item}
                   navigation={navigation}
-                  onStatusUpdate={fetchApplicants} // 🆕 Pass refresh callback
+                  onStatusUpdate={fetchApplicants} 
                 />
               ))
             ) : (
@@ -402,7 +398,6 @@ const KelolaPendaftaranScreen = () => {
         resizeMode="contain"
       />
 
-      {/* Bottom Navigation */}
       <View style={ManagerStyles.bottomNav}>
         <TouchableOpacity
           style={ManagerStyles.navItem}
@@ -596,7 +591,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.textLight,
   },
-  // 🆕 Action Buttons Styles
   actionButtons: {
     flexDirection: 'row',
     gap: 8,

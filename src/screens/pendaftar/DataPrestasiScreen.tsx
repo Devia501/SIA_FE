@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+// src/screens/pendaftar/DataPrestasiScreen.tsx
+
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,8 +9,10 @@ import {
   ScrollView,
   Image,
   TextInput,
+  Modal, // Ditambahkan untuk Dropdown
   Alert,
-  StyleSheet, // Import StyleSheet
+  StyleSheet, 
+  ActivityIndicator, 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -19,27 +23,105 @@ import PendaftaranStyles from '../../styles/PendaftaranStyles';
 import { pick, types } from '@react-native-documents/picker';
 import LinearGradient from 'react-native-linear-gradient';
 
+// 📌 IMPORT SERVICE DAN TYPES DARI API (Wajib)
+import { 
+  registrationService, 
+  Achievement, 
+  Profile 
+} from '../../services/apiService'; 
+
 type DataPrestasiNavigationProp = NativeStackNavigationProp<
   PendaftarStackParamList,
   'DataPrestasi'
 >;
 
-interface PrestasiItem {
-  nama: string;
-  tahun: string;
-  jenis: string;
-  tingkat: string;
-  penyelenggara: string;
-  peringkat: string;
-  file?: PickedDocument | null;
-}
+// 🔑 OPSI ENUM UNTUK TINGKAT PRESTASI (Berdasarkan Struktur DB)
+const ACHIEVEMENT_LEVEL_OPTIONS = [
+  'Sekolah', 
+  'Kecamatan', 
+  'Kabupaten/Kota', 
+  'Provinsi', 
+  'Nasional', 
+  'Internasional'
+];
 
+
+// INTERFACE DOKUMEN 
 interface PickedDocument {
   uri: string;
   name: string;
   size: number;
   type: string;
+  server_id?: number; 
 }
+
+// INTERFACE PRESTASI ITEM 
+interface PrestasiItem {
+  id_achievement?: number; 
+  achievement_name: string; 
+  year?: number; 
+  achievement_type?: string; 
+  achievement_level?: string; // 🔑 Diubah menjadi string untuk menampung nilai ENUM
+  organizer?: string; 
+  ranking?: string; 
+  certificate_path?: string; 
+  file?: PickedDocument | null; 
+}
+
+// 📌 KOMPONEN DROPDOWN MODAL (Dibutuhkan untuk ENUM)
+interface DropdownModalProps {
+  visible: boolean;
+  onClose: () => void;
+  options: string[];
+  onSelect: (value: string) => void;
+  selectedValue: string;
+}
+
+const DropdownModal: React.FC<DropdownModalProps> = ({ 
+  visible, 
+  onClose, 
+  options, 
+  onSelect, 
+  selectedValue,
+}) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+  >
+    <TouchableOpacity 
+      style={PendaftaranStyles.modalOverlay} 
+      activeOpacity={1}
+      onPress={onClose}
+    >
+      <View style={PendaftaranStyles.modalContent}>
+        <ScrollView style={PendaftaranStyles.modalScrollView}>
+          {options.map((option, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                PendaftaranStyles.modalOption,
+                selectedValue === option && PendaftaranStyles.modalOptionSelected
+              ]}
+              onPress={() => {
+                onSelect(option);
+                onClose();
+              }}
+            >
+              <Text style={[
+                PendaftaranStyles.modalOptionText,
+                selectedValue === option && PendaftaranStyles.modalOptionTextSelected
+              ]}>
+                {option}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </TouchableOpacity>
+  </Modal>
+);
 
 const formatFileSize = (bytes: number | undefined): string => {
   if (!bytes) return '0 KB';
@@ -48,24 +130,105 @@ const formatFileSize = (bytes: number | undefined): string => {
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
 };
 
+
 const DataPrestasiScreen = () => {
   const navigation = useNavigation<DataPrestasiNavigationProp>();
   const [prestasiList, setPrestasiList] = useState<PrestasiItem[]>([
-    { nama: '', tahun: '', jenis: '', tingkat: '', penyelenggara: '', peringkat: '', file: null },
+    { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
   ]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [profileId, setProfileId] = useState<number | null>(null);
+
+  // 🔑 STATE BARU UNTUK KONTROL MODAL TINGKAT PRESTASI
+  const [showLevelModalIndex, setShowLevelModalIndex] = useState<number | null>(null); 
+
+
+  // 🔑 LOGIKA PENCEGAHAN BACK & LOAD DATA AWAL
+  useEffect(() => {
+    loadInitialData();
+
+    return navigation.addListener('beforeRemove', (e) => {
+      Alert.alert(
+        "Peringatan!", 
+        "Anda harus menekan tombol 'Next' untuk melanjutkan ke halaman berikutnya (Data Orang Tua)."
+      );
+      e.preventDefault(); 
+    });
+  }, [navigation]);
+
+  // 📌 FUNGSI LOAD DATA AWAL
+  const loadInitialData = async () => {
+    setLoadingData(true);
+    try {
+      const profile = await registrationService.getProfile();
+      setProfileId(profile.id_profile || null);
+
+      const achievements = await registrationService.getAchievements();
+
+      if (achievements.length > 0) {
+        const mappedList: PrestasiItem[] = achievements.map(item => ({
+          id_achievement: item.id_achievement,
+          achievement_name: item.achievement_name || '',
+          year: item.year,
+          achievement_type: item.achievement_type || '',
+          achievement_level: item.achievement_level || '',
+          organizer: item.organizer || '',
+          ranking: item.ranking || '',
+          certificate_path: item.certificate_path,
+          file: item.certificate_path 
+            ? {
+                uri: item.certificate_path,
+                name: item.certificate_path.split('/').pop() || 'Sertifikat.pdf',
+                size: 0, 
+                type: 'application/pdf', 
+                server_id: item.id_achievement, 
+              } 
+            : null,
+        }));
+        setPrestasiList(mappedList);
+      } else {
+        setPrestasiList([
+          { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
+        ]);
+      }
+    } catch (error: any) {
+      if (error.response?.status !== 404) {
+        Alert.alert('Error', 'Gagal memuat data prestasi.');
+      }
+      setPrestasiList([
+        { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
+      ]);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
 
   const handleAddPrestasi = () => {
     setPrestasiList([
       ...prestasiList,
-      { nama: '', tahun: '', jenis: '', tingkat: '', penyelenggara: '', peringkat: '', file: null },
+      { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
     ]);
   };
 
-  const handleDeletePrestasi = (index: number) => {
-    if (prestasiList.length === 1) {
-      Alert.alert('Peringatan', 'Minimal harus ada satu form prestasi.');
-      return;
+  const handleDeletePrestasi = async (index: number) => {
+    const itemToDelete = prestasiList[index];
+
+    if (prestasiList.length === 1 && !itemToDelete.id_achievement) {
+        setPrestasiList([
+            { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
+        ]);
+        Alert.alert('Sukses', 'Form prestasi dikosongkan.');
+        return;
     }
+
+    if (prestasiList.length === 1 && itemToDelete.id_achievement) {
+        Alert.alert('Peringatan', 'Minimal harus ada satu form prestasi (kosong jika tidak ada).');
+        return;
+    }
+
+
     Alert.alert(
       'Konfirmasi Hapus',
       'Anda yakin ingin menghapus data prestasi ini?',
@@ -73,10 +236,27 @@ const DataPrestasiScreen = () => {
         { text: 'Batal', style: 'cancel' },
         {
           text: 'Hapus',
-          onPress: () => {
+          onPress: async () => {
             const updated = prestasiList.filter((_, i) => i !== index);
-            setPrestasiList(updated);
-            Alert.alert('Sukses', 'Data prestasi berhasil dihapus');
+            
+            if (updated.length === 0) {
+              setPrestasiList([
+                { achievement_name: '', year: undefined, achievement_type: '', achievement_level: '', organizer: '', ranking: '', file: null },
+              ]);
+            } else {
+              setPrestasiList(updated);
+            }
+
+            if (itemToDelete.id_achievement) {
+              try {
+                await registrationService.deleteAchievement(itemToDelete.id_achievement);
+                Alert.alert('Sukses', 'Data prestasi berhasil dihapus dari server.');
+              } catch (error) {
+                Alert.alert('Error', 'Gagal menghapus prestasi dari server.');
+              }
+            } else {
+                Alert.alert('Sukses', 'Data prestasi (lokal) berhasil dihapus');
+            }
           },
           style: 'destructive',
         },
@@ -86,9 +266,23 @@ const DataPrestasiScreen = () => {
 
   const handleChange = (index: number, key: keyof PrestasiItem, value: string) => {
     const updated = [...prestasiList];
-    updated[index][key] = value;
+    if (key === 'year') {
+        const cleanValue = value.replace(/[^0-9]/g, '');
+        updated[index].year = cleanValue ? parseInt(cleanValue) : undefined;
+    } else {
+        (updated[index] as any)[key] = value;
+    }
     setPrestasiList(updated);
   };
+  
+  // 🔑 HANDLE SELECT UNTUK TINGKAT PRESTASI
+  const handleSelectLevel = (index: number, level: string) => {
+      const updated = [...prestasiList];
+      updated[index].achievement_level = level;
+      setPrestasiList(updated);
+      setShowLevelModalIndex(null);
+  };
+
 
   const handlePickDocument = async (index: number) => {
     try {
@@ -105,13 +299,14 @@ const DataPrestasiScreen = () => {
           type: file.type || '',
         };
         const updated = [...prestasiList];
-        updated[index].file = newFile;
+        updated[index].file = newFile; 
+        updated[index].certificate_path = undefined; 
         setPrestasiList(updated);
-        Alert.alert('Sukses', 'File prestasi berhasil diunggah');
+        Alert.alert('Sukses', 'File prestasi berhasil dipilih. Jangan lupa klik Next untuk menyimpan.');
       }
     } catch (error: any) {
       if (error?.code !== 'DOCUMENT_PICKER_CANCELED') {
-        Alert.alert('Error', 'Gagal mengunggah file prestasi');
+        Alert.alert('Error', 'Gagal memilih file prestasi');
       }
     }
   };
@@ -128,9 +323,73 @@ const DataPrestasiScreen = () => {
   const handleDeleteDocument = (index: number) => {
     const updated = [...prestasiList];
     updated[index].file = null;
+    updated[index].certificate_path = undefined; 
     setPrestasiList(updated);
-    Alert.alert('Sukses', 'File prestasi berhasil dihapus');
+    Alert.alert('Sukses', 'File sertifikat dihapus (lokal). Klik Next untuk menyimpan perubahan.');
   };
+  
+  // 📌 LOGIKA PENYIMPANAN DATA PRESTASI DAN NAVIGASI
+  const handleNext = async () => {
+    if (isSaving || loadingData) return;
+    setIsSaving(true);
+    
+    try {
+        const existingAchievements = await registrationService.getAchievements();
+        
+        // Hapus semua prestasi lama yang ada di server
+        for (const item of existingAchievements) {
+            if (item.id_achievement) {
+                 await registrationService.deleteAchievement(item.id_achievement);
+            }
+        }
+
+        // Proses dan simpan prestasi yang valid (minimal Nama Prestasi terisi)
+        const validPrestasi = prestasiList.filter(item => 
+            item.achievement_name.trim() !== ''
+        );
+        
+        if (validPrestasi.length > 0) {
+            for (const item of validPrestasi) {
+                
+                const payload: Partial<Achievement> = {
+                    id_profile: profileId || undefined, 
+                    achievement_name: item.achievement_name.trim(),
+                    year: item.year,
+                    achievement_type: item.achievement_type || undefined,
+                    achievement_level: item.achievement_level || undefined,
+                    organizer: item.organizer || undefined,
+                    ranking: item.ranking || undefined,
+                    certificate_path: item.file?.uri || item.certificate_path, 
+                };
+                
+                await registrationService.addAchievement(payload);
+            }
+        }
+        
+        Alert.alert('Sukses', 'Data Prestasi berhasil disimpan. Anda dapat melanjutkan.');
+        
+        // NAVIGASI KE LANGKAH TERAKHIR: DataOrangTua
+        navigation.navigate('DataOrangTua'); 
+
+    } catch (error: any) {
+        const errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data prestasi.';
+        Alert.alert('Error', errorMessage);
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+
+  if (loadingData) {
+    return (
+      <SafeAreaView style={PendaftarStyles.container} edges={['top']}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#DABC4E" />
+          <Text style={{ marginTop: 10, color: '#666' }}>Memuat data prestasi...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={PendaftarStyles.container} edges={['top']}>
@@ -150,7 +409,7 @@ const DataPrestasiScreen = () => {
           </ImageBackground>
         </View>
 
-        {/* Progress Bar (Tidak Berubah) */}
+        {/* Progress Bar (Langkah 4 dari 5) */}
         <View style={PendaftaranStyles.progressContainer}>
           <View style={PendaftaranStyles.progressBar}>
             <View style={[PendaftaranStyles.progressStep, PendaftaranStyles.progressStepActive]} />
@@ -212,10 +471,11 @@ const DataPrestasiScreen = () => {
                     {index === 0 ? 'Prestasi Utama' : `Prestasi Tambahan #${index}`}
                   </Text>
                   
-                  {index > 0 && (
+                  {prestasiList.length > 1 && (
                     <TouchableOpacity
                       onPress={() => handleDeletePrestasi(index)}
                       style={styles.deletePrestasiButton}
+                      disabled={isSaving}
                     >
                       <Image
                         source={require('../../assets/icons/line-md_trash.png')}
@@ -229,39 +489,65 @@ const DataPrestasiScreen = () => {
 
                 {/* Input Fields */}
                 {[
-                  { label: 'Nama Prestasi', key: 'nama' },
-                  { label: 'Tahun', key: 'tahun', keyboardType: 'numeric' },
-                  { label: 'Jenis Prestasi', key: 'jenis' },
-                  { label: 'Tingkat Prestasi', key: 'tingkat' },
-                  { label: 'Penyelenggara', key: 'penyelenggara' },
-                  { label: 'Peringkat', key: 'peringkat' },
+                  { label: 'Nama Prestasi', key: 'achievement_name', value: item.achievement_name },
+                  { label: 'Tahun', key: 'year', keyboardType: 'numeric', value: item.year?.toString() || '' },
+                  { label: 'Jenis Prestasi', key: 'achievement_type', value: item.achievement_type || '' },
+                  { label: 'Penyelenggara', key: 'organizer', value: item.organizer || '' },
+                  { label: 'Peringkat', key: 'ranking', value: item.ranking || '' },
                 ].map((field, i) => (
                   <View key={i} style={PendaftaranStyles.formGroup}>
                     <Text style={styles.label}>{field.label}</Text>
                     <TextInput
                       style={PendaftaranStyles.input}
-                      value={item[field.key as keyof PrestasiItem] as string}
+                      value={field.value}
                       onChangeText={(val) => handleChange(index, field.key as keyof PrestasiItem, val)}
                       keyboardType={field.keyboardType as any}
+                      editable={!isSaving}
                     />
                   </View>
                 ))}
+                
+                {/* 🔑 INPUT DROPDOWN: Tingkat Prestasi (ENUM) */}
+                <View style={PendaftaranStyles.formGroup}>
+                    <Text style={styles.label}>Tingkat Prestasi</Text>
+                    <TouchableOpacity 
+                        style={PendaftaranStyles.pickerContainer}
+                        onPress={() => setShowLevelModalIndex(index)}
+                        disabled={isSaving}
+                    >
+                        <View style={PendaftaranStyles.pickerInput}>
+                            <Text style={[
+                                PendaftaranStyles.pickerText, 
+                                !item.achievement_level && PendaftaranStyles.placeholderText
+                            ]}>
+                                {item.achievement_level || 'Pilih Tingkat'}
+                            </Text>
+                        </View>
+                        <Image
+                            source={showLevelModalIndex === index ? require('../../assets/icons/Polygon 5.png') : require('../../assets/icons/Polygon 4.png')}
+                            style={PendaftaranStyles.dropdownIcon}
+                            resizeMode="contain"
+                        />
+                    </TouchableOpacity>
+                </View>
 
-                {/* Upload Sertifikat (Tidak Berubah) */}
+
+                {/* Upload Sertifikat */}
                 <View style={PendaftaranStyles.formGroup}>
                   <Text style={styles.label}>Upload Sertifikat Prestasi</Text>
                   <TouchableOpacity
                     style={PendaftaranStyles.uploadButton}
                     onPress={() => handlePickDocument(index)}
+                    disabled={isSaving}
                   >
                     <View style={PendaftaranStyles.uploadContent}>
-                      {item.file ? (
+                      {item.file || item.certificate_path ? ( // Cek file lokal atau path server
                         <View style={PendaftaranStyles.uploadedFileContainer}>
                           <Text style={PendaftaranStyles.uploadedFileName} numberOfLines={1}>
-                            {item.file.name}
+                            {item.file?.name || item.certificate_path?.split('/').pop() || 'File Tersimpan'}
                           </Text>
                           <Text style={PendaftaranStyles.uploadedFileSize}>
-                            {formatFileSize(item.file.size)}
+                            {formatFileSize(item.file?.size || 0)}
                           </Text>
                         </View>
                       ) : (
@@ -276,11 +562,12 @@ const DataPrestasiScreen = () => {
                     </View>
                   </TouchableOpacity>
 
-                  {item.file && (
+                  {(item.file || item.certificate_path) && (
                     <View style={PendaftaranStyles.documentActions}>
                       <TouchableOpacity
                         style={PendaftaranStyles.viewButton}
-                        onPress={() => handleViewDocument(item.file)}
+                        onPress={() => handleViewDocument(item.file || { uri: item.certificate_path!, name: 'File Tersimpan', size: 0, type: 'application/pdf' })}
+                        disabled={isSaving}
                       >
                         <Image
                           source={require('../../assets/icons/fi-sr-eye.png')}
@@ -291,6 +578,7 @@ const DataPrestasiScreen = () => {
                       <TouchableOpacity
                         style={PendaftaranStyles.deleteButton}
                         onPress={() => handleDeleteDocument(index)}
+                        disabled={isSaving}
                       >
                         <Image
                           source={require('../../assets/icons/line-md_trash.png')}
@@ -304,10 +592,11 @@ const DataPrestasiScreen = () => {
               </View>
             ))}
 
-            {/* Add Prestasi (Tidak Berubah) */}
+            {/* Add Prestasi */}
             <TouchableOpacity
               style={styles.addPrestasiButton}
               onPress={handleAddPrestasi}
+              disabled={isSaving}
             >
               <View
                 style={styles.addIconCircle}
@@ -321,10 +610,11 @@ const DataPrestasiScreen = () => {
               <Text style={styles.addPrestasiText}>Add Prestasi</Text>
             </TouchableOpacity>
 
-            {/* Next Button (Tidak Berubah) */}
+            {/* Next Button (Memanggil fungsi simpan/navigasi) */}
             <TouchableOpacity
               style={PendaftaranStyles.nextButton}
-              onPress={() => navigation.navigate('DataOrangTua')}
+              onPress={handleNext}
+              disabled={isSaving || loadingData}
             >
               <LinearGradient
                 colors={['#DABC4E', '#F5EFD3']}
@@ -332,7 +622,11 @@ const DataPrestasiScreen = () => {
                 end={{ x: 1, y: 0.5 }}
                 style={PendaftaranStyles.nextButton}
               >
-                <Text style={PendaftaranStyles.nextButtonText}>Next</Text>
+                {isSaving ? (
+                    <ActivityIndicator color="#000" />
+                ) : (
+                    <Text style={PendaftaranStyles.nextButtonText}>Next</Text>
+                )}
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -344,11 +638,21 @@ const DataPrestasiScreen = () => {
         style={PendaftarStyles.backgroundLogo}
         resizeMode="contain"
       />
+      
+      {/* 🔑 MODAL TINGKAT PRESTASI (GLOBAL) */}
+      <DropdownModal
+        visible={showLevelModalIndex !== null}
+        onClose={() => setShowLevelModalIndex(null)}
+        options={ACHIEVEMENT_LEVEL_OPTIONS}
+        onSelect={(level) => handleSelectLevel(showLevelModalIndex!, level)}
+        selectedValue={showLevelModalIndex !== null ? (prestasiList[showLevelModalIndex]?.achievement_level || '') : ''}
+      />
+
     </SafeAreaView>
   );
 };
 
-// --- GAYA BARU (DIREFACTORING DARI INLINE STYLE DAN PENAMBAHAN GAYA BARU) ---
+// --- GAYA (Tidak ada perubahan pada gaya) ---
 const styles = StyleSheet.create({
   // Gaya untuk Info Badges
   infoBadgeRow: {
@@ -382,7 +686,7 @@ const styles = StyleSheet.create({
   // Gaya untuk Prestasi Item
   prestasiItemContainer: {
     marginBottom: 20,
-    backgroundColor: '#F5F5F5', // Latar belakang ringan untuk pembeda
+    backgroundColor: '#F5F5F5', 
     padding: 15,
     borderRadius: 10,
     borderWidth: 1,
@@ -390,7 +694,7 @@ const styles = StyleSheet.create({
   },
   additionalPrestasi: {
     marginTop: 25,
-    backgroundColor: '#FFF0D9', // Latar belakang beda untuk item tambahan
+    backgroundColor: '#FFF0D9', 
     borderColor: '#DABC4E',
     borderWidth: 2,
   },

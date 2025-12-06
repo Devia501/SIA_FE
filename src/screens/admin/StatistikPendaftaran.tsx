@@ -1,6 +1,4 @@
-// src/screens/admin/StatistikPendaftaranScreen.tsx
-
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,39 +7,132 @@ import {
   Image,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-// Asumsi AdminStackParamList ada, jika tidak, ganti dengan tipe navigasi yang sesuai
 import { AdminStackParamList } from '../../navigation/AdminNavigator'; 
-import { AdminStyles } from '../../styles/AdminStyles';
 import LinearGradient from 'react-native-linear-gradient'; 
 
+// ✅ GUNAKAN SVG AGAR DIAGRAM PRESISI & DINAMIS
+import Svg, { G, Circle, Text as SvgText } from 'react-native-svg';
+
+// ✅ IMPORT SERVICE
+import apiService from '../../services/apiService'; 
+
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 24 * 3) / 2; // (Total width - padding * 3) / 2
 
 type StatistikPendaftaranNavigationProp = NativeStackNavigationProp<AdminStackParamList, 'StatistikPendaftaran'>;
 
-// Data Dummy
-const DUMMY_DATA = {
-  total: 1234,
-  disetujui: 892,
-  pending: 287,
-  ditolak: 55,
-  persentase: {
-    disetujui: 70,
-    pending: 20,
-    ditolak: 10,
-  },
-};
+// Definisi Tipe Data Lokal (Agar tidak error import)
+interface Statistics {
+  total: number;
+  submitted: number;
+  approved: number;
+  rejected: number;
+}
 
-// Data untuk legenda dan warna grafik
-const CHART_LEGEND = [
-  { label: 'Disetujui', value: DUMMY_DATA.disetujui, percent: DUMMY_DATA.persentase.disetujui, color: '#38A169' }, // Hijau
-  { label: 'Ditolak', value: DUMMY_DATA.ditolak, percent: DUMMY_DATA.persentase.ditolak, color: '#DC2626' },    // Merah
-  { label: 'Pending', value: DUMMY_DATA.pending, percent: DUMMY_DATA.persentase.pending, color: '#DABC4E' },   // Emas
-];
+// =========================================================
+// 🎨 KOMPONEN DONUT CHART SVG (DINAMIS & MIRIP FIGMA)
+// =========================================================
+const DonutChart = ({ 
+  data, 
+  total,
+  radius = 80, 
+  strokeWidth = 45 
+}: { 
+  data: { color: string, value: number, percentStr: string }[], 
+  total: number,
+  radius?: number,
+  strokeWidth?: number
+}) => {
+  const halfCircle = radius + strokeWidth;
+  const size = halfCircle * 2;
+  const circumference = 2 * Math.PI * radius;
+  let currentAngle = -90; // Mulai dari atas (jam 12)
+
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center', height: size + 20 }}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <G rotation="-90" origin={`${halfCircle}, ${halfCircle}`}>
+          {/* Background Abu-abu jika data 0 */}
+          {total === 0 && (
+             <Circle cx="50%" cy="50%" r={radius} stroke="#E0E0E0" strokeWidth={strokeWidth} fill="transparent" />
+          )}
+
+          {/* Render Potongan Donat */}
+          {data.map((item, index) => {
+            if (item.value === 0) return null;
+            
+            const strokeDashoffset = circumference - (item.value / total) * circumference;
+            const angle = (item.value / total) * 360;
+            
+            const circle = (
+              <Circle
+                key={`slice-${index}`}
+                cx="50%" cy="50%" r={radius}
+                stroke={item.color}
+                strokeWidth={strokeWidth}
+                fill="transparent"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+                strokeLinecap="butt"
+                rotation={currentAngle + 90}
+                origin={`${halfCircle}, ${halfCircle}`}
+              />
+            );
+            currentAngle += angle;
+            return circle;
+          })}
+        </G>
+      </Svg>
+
+      {/* Angka Total di Tengah */}
+      <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#000' }}>{total}</Text>
+      </View>
+
+      {/* Label Persentase Mengambang (Bubbles) */}
+      {(() => {
+        let labelAngle = -90;
+        return data.map((item, index) => {
+          if (item.value === 0) return null;
+          
+          const angle = (item.value / total) * 360;
+          const middleAngle = labelAngle + (angle / 2);
+          const radian = (middleAngle * Math.PI) / 180;
+          
+          // Posisi label (Radius + setengah stroke + sedikit offset)
+          const labelRadius = radius; 
+          const x = halfCircle + labelRadius * Math.cos(radian);
+          const y = halfCircle + labelRadius * Math.sin(radian);
+          
+          labelAngle += angle;
+
+          return (
+            <View 
+              key={`label-${index}`}
+              style={[
+                localStyles.floatingLabel, 
+                { 
+                  left: x - 20, 
+                  top: y - 15,
+                }
+              ]}
+            >
+              <Text style={[localStyles.percentText, { color: '#000' }]}>
+                {item.percentStr}%
+              </Text>
+            </View>
+          );
+        });
+      })()}
+    </View>
+  );
+};
 
 // --- Komponen Kartu Ringkasan ---
 const SummaryCard: React.FC<{
@@ -61,11 +152,11 @@ const SummaryCard: React.FC<{
   </View>
 );
 
-// --- Komponen Chart Legend Item ---
+// --- Komponen Legend Item ---
 const LegendItem: React.FC<{
   label: string;
   value: number;
-  percent: number;
+  percent: string;
   color: string;
 }> = ({ label, value, percent, color }) => (
   <View style={localStyles.legendItem}>
@@ -75,65 +166,76 @@ const LegendItem: React.FC<{
   </View>
 );
 
-
 const StatistikPendaftaran = () => {
   const navigation = useNavigation<StatistikPendaftaranNavigationProp>();
+  const isFocused = useIsFocused();
 
-  const handleBack = () => {
-    navigation.goBack();
-  };
+  // STATE DATA
+  const [stats, setStats] = useState<Statistics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleSwitchTab = (tab: 'pendaftaran' | 'pembayaran') => {
-    // Logic untuk beralih tab, saat ini hanya tampilan
-    console.log(`Switching to ${tab} statistics`);
-  };
+  // FETCH DATA
+  const loadStatistics = useCallback(async () => {
+    try {
+      // Menggunakan adminService dari apiService.ts
+      const response = await apiService.admin.getRegistrationStatistics();
+      // Mapping response agar sesuai tipe
+      const data: Statistics = {
+        total: response.total_registrations || 0,
+        submitted: response.submitted || 0,
+        approved: response.approved || 0,
+        rejected: response.rejected || 0
+      };
+      setStats(data);
+    } catch (error: any) {
+      console.error('Error fetching stats:', error);
+      // Fallback data jika API belum siap/error (agar tidak blank)
+      setStats({ total: 0, submitted: 0, approved: 0, rejected: 0 });
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
-  const handleLihatDetail = () => {
-    console.log('Navigasi ke Detail Data Pendaftar');
-    // navigation.navigate('DetailPendaftar'); 
-  };
-  
-  const handleStatistikPerProdi = () => {
-    console.log('Navigasi ke Statistik Per Prodi');
-    // navigation.navigate('StatistikProdi'); 
-  };
-  
-  const handleHome = () => {
-      // navigation.navigate('AdminHome');
-      navigation.popToTop();
-  };
+  useEffect(() => { if (isFocused) loadStatistics(); }, [isFocused, loadStatistics]);
+  const onRefresh = () => { setRefreshing(true); loadStatistics(); };
 
-  const handleManage = () => {
-      // navigation.navigate('KelolaManager');
-      console.log('Navigasi ke Kelola Manager');
-  };
+  // DATA PROCESSING
+  const total = stats?.total ?? 0;
+  const approved = stats?.approved ?? 0;
+  const rejected = stats?.rejected ?? 0;
+  const pending = stats?.submitted ?? 0;
 
-  const handleUserList = () => {
-      // navigation.navigate('UserList');
-      console.log('Navigasi ke User List');
-  };
+  const getPercentStr = (val: number) => (total === 0 ? '0' : ((val / total) * 100).toFixed(1).replace('.0', ''));
 
+  // Data Chart (Urutan warna: Hijau -> Merah -> Kuning, sesuai desain)
+  const chartData = [
+    { color: '#2DB872', value: approved, percentStr: getPercentStr(approved) }, // Hijau
+    { color: '#BE0414', value: rejected, percentStr: getPercentStr(rejected) }, // Merah
+    { color: '#DABC4E', value: pending, percentStr: getPercentStr(pending) },   // Kuning
+  ];
 
   return (
     <SafeAreaView style={localStyles.container} edges={['top', 'bottom']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={localStyles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DABC4E']} />}
       >
-        {/* Header */}
+        {/* Header (Style Asli) */}
         <View style={localStyles.headerContainer}>
           <View>
             <LinearGradient
-                        colors={['#DABC4E', '#EFE3B0']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={localStyles.headerBackground}
-                      >
+                colors={['#DABC4E', '#EFE3B0']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={localStyles.headerBackground}
+            >
             <View style={localStyles.headerContent}>
-              {/* Tombol Back */}
               <TouchableOpacity
                 style={localStyles.headerIconContainerLeft}
-                onPress={handleBack}
+                onPress={() => navigation.goBack()}
               >
                 <Image
                   source={require('../../assets/icons/material-symbols_arrow-back-rounded.png')}
@@ -149,191 +251,111 @@ const StatistikPendaftaran = () => {
           </View>
         </View>
 
-        {/* Tab Selector */}
+        {/* Tab Selector (Style Asli) */}
         <View style={localStyles.tabContainer}>
-          <TouchableOpacity 
-            style={localStyles.activeTab}
-            onPress={() => handleSwitchTab('pendaftaran')}
-          >
+          <TouchableOpacity style={localStyles.activeTab}>
             <Text style={localStyles.activeTabText}>Statistik Pendaftaran</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={localStyles.inactiveTab}
-            onPress={() => navigation.navigate('StatistikPembayaran')}
-          >
+          <TouchableOpacity style={localStyles.inactiveTab}>
             <Text style={localStyles.inactiveTabText}>Statistik Pembayaran</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Ringkasan Kartu */}
-        <View style={localStyles.summaryGrid}>
-          {/* Total Pendaftar */}
-          <SummaryCard
-            label="Total Pendaftar"
-            value={DUMMY_DATA.total}
-            iconSource={require('../../assets/icons/Group 13887.png')}
-            
-          />
-          {/* Disetujui */}
-          <SummaryCard
-            label="Disetujui"
-            value={DUMMY_DATA.disetujui}
-            iconSource={require('../../assets/icons/Group 13888.png')}
-           
-          />
-          {/* Pending */}
-          <SummaryCard
-            label="Pending"
-            value={DUMMY_DATA.pending}
-            iconSource={require('../../assets/icons/Group 13889.png')}
-            
-          />
-          {/* Ditolak */}
-          <SummaryCard
-            label="Ditolak"
-            value={DUMMY_DATA.ditolak}
-            iconSource={require('../../assets/icons/codex_cross.png')}
-           
-          />
-        </View>
-        
-        {/* Status Pendaftaran Card (Chart) */}
-        <View style={localStyles.chartCard}>
-          <View style={localStyles.chartCardHeader}>
-            <Text style={localStyles.chartCardTitle}>Status Pendaftaran</Text>
-            <Image
-                source={require('../../assets/icons/solar_chart-bold-duotone.png')} 
-                style={localStyles.chartIcon}
-                resizeMode="contain"
-            />
-          </View>
-          
-          {/* Donut Chart Container */}
-          <View style={localStyles.donutChartContainer}>
-            {/* Donut Chart dengan SVG-like approach */}
-            <View style={localStyles.donutChartWrapper}>
-              {/* Base Circle */}
-              <View style={localStyles.donutBase}>
-                {/* Segmen Hijau (Disetujui 70%) - Bottom */}
-                <View style={[localStyles.segmentGreen]} />
+        {isLoading ? (
+            <ActivityIndicator size="large" color="#DABC4E" style={{ marginTop: 50 }} />
+        ) : (
+            <>
+                {/* Ringkasan Kartu (Style Asli) */}
+                <View style={localStyles.summaryGrid}>
+                    <SummaryCard label="Total Pendaftar" value={total} iconSource={require('../../assets/icons/Group 13887.png')} />
+                    <SummaryCard label="Disetujui" value={approved} iconSource={require('../../assets/icons/Group 13888.png')} />
+                    <SummaryCard label="Pending" value={pending} iconSource={require('../../assets/icons/Group 13889.png')} />
+                    <SummaryCard label="Ditolak" value={rejected} iconSource={require('../../assets/icons/codex_cross.png')} />
+                </View>
                 
-                {/* Segmen Kuning (Pending 20%) - Right */}
-                <View style={[localStyles.segmentYellow]} />
-                
-                {/* Segmen Merah (Ditolak 10%) - Top */}
-                <View style={[localStyles.segmentRed]} />
-              </View>
-              
-              {/* Center Circle dengan nilai */}
-              <View style={localStyles.donutChartCenter}>
-                <Text style={localStyles.donutCenterValue}>{DUMMY_DATA.total.toLocaleString()}</Text>
-              </View>
-              
-              {/* Percentage Labels dengan background putih */}
-              <View style={[localStyles.percentLabel, { top: 30, left: 15 }]}>
-                <Text style={[localStyles.percentText, { color: '#DABC4E' }]}>20%</Text>
-              </View>
-              <View style={[localStyles.percentLabel, { top: 30, right: 15 }]}>
-                <Text style={[localStyles.percentText, { color: '#38A169' }]}>70%</Text>
-              </View>
-              <View style={[localStyles.percentLabel, { bottom: 35 }]}>
-                <Text style={[localStyles.percentText, { color: '#DC2626' }]}>10%</Text>
-              </View>
-            </View>
-            
-            {/* Legend di bawah chart */}
-            <View style={localStyles.legendContainer}>
-              {CHART_LEGEND.map(item => (
-                <LegendItem key={item.label} {...item} />
-              ))}
-            </View>
-          </View>
-        </View>
+                {/* Status Pendaftaran Card */}
+                <View style={localStyles.chartCard}>
+                    <View style={localStyles.chartCardHeader}>
+                        <Text style={localStyles.chartCardTitle}>Status Pendaftaran</Text>
+                        {/* Icon Chart */}
+                        <Image source={require('../../assets/icons/solar_chart-bold-duotone.png')} style={localStyles.chartIcon} resizeMode="contain" />
+                    </View>
+                    
+                    {/* ✅ DIAGRAM SVG DINAMIS */}
+                    <View style={{ marginVertical: 10 }}>
+                        <DonutChart 
+                            data={chartData} 
+                            total={total} 
+                            radius={80} 
+                            strokeWidth={45} 
+                        />
+                    </View>
+                    
+                    {/* Legend Dinamis */}
+                    <View style={localStyles.legendContainer}>
+                        <LegendItem label="Disetujui" value={approved} percent={getPercentStr(approved)} color="#2DB872" />
+                        <LegendItem label="Ditolak" value={rejected} percent={getPercentStr(rejected)} color="#BE0414" />
+                        <LegendItem label="Pending" value={pending} percent={getPercentStr(pending)} color="#DABC4E" />
+                    </View>
+                </View>
+            </>
+        )}
         
-        {/* Action Buttons */}
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('StatistikProdi')}
-        >
-          <LinearGradient
-              colors={['#DABC4E', '#EFE3B0']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 1 }}
-              style={localStyles.actionButtonPrimary}
-              >
-          <Text style={localStyles.actionButtonText}>Statistik Per Prodi</Text>
-          <Image
-              source={require('../../assets/icons/streamline-sharp_graduation-cap-remix.png')}
-              style={localStyles.actionButtonIcon}
-              resizeMode="contain"
-          />
+        {/* Action Buttons (Style Asli) */}
+        <TouchableOpacity onPress={() => navigation.navigate('StatistikProdi')} disabled={isLoading}>
+          <LinearGradient colors={['#DABC4E', '#EFE3B0']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 1 }} style={localStyles.actionButtonPrimary}>
+            <Text style={localStyles.actionButtonText}>Statistik Per Prodi</Text>
+            <Image source={require('../../assets/icons/streamline-sharp_graduation-cap-remix.png')} style={localStyles.actionButtonIcon} resizeMode="contain" />
           </LinearGradient>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('DataPendaftar')}
-        >
-          <LinearGradient
-              colors={['#DABC4E', '#EFE3B0']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 1 }}
-              style={localStyles.actionButtonPrimary}
-              >
-          <Text style={localStyles.actionButtonTextSecondary}>Lihat Detail Data Pendaftar</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('DataPendaftar')} disabled={isLoading}>
+          <LinearGradient colors={['#DABC4E', '#EFE3B0']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 1 }} style={localStyles.actionButtonPrimary}>
+            <Text style={localStyles.actionButtonTextSecondary}>Lihat Detail Data Pendaftar</Text>
           </LinearGradient>
         </TouchableOpacity>
         
-        {/* Spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Bottom Navigation - Fixed Position */}
-      <View style={AdminStyles.bottomNav}>
-              <TouchableOpacity style={AdminStyles.navItem}
-              onPress={() => navigation.navigate('AdminDashboard')}>
-                  <Image
-                    source={require('../../assets/icons/material-symbols_home-rounded.png')}
-                    style={AdminStyles.navIcon}
-                    resizeMode="contain"
-                  />
-              </TouchableOpacity>
-      
-              <TouchableOpacity style={AdminStyles.navItemActive}>
-                <Image
-                  source={require('../../assets/icons/proicons_save-pencil.png')}
-                  style={AdminStyles.navIcon}
-                  resizeMode="contain"
-                />
-                <Text style={AdminStyles.navTextActive}>Manage</Text>
-              </TouchableOpacity>
-      
-              <TouchableOpacity style={AdminStyles.navItem}
-              onPress={() => navigation.navigate('AddManager')}>
-                <Image
-                  source={require('../../assets/icons/f7_person-3-fill.png')}
-                  style={AdminStyles.navIcon}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
+      {/* Bottom Navigation (Style Asli) */}
+      <View style={localStyles.bottomNavContainer}>
+          <TouchableOpacity style={localStyles.navButton} onPress={() => navigation.navigate('AdminDashboard')}>
+              <View style={localStyles.navIconWrapper}>
+                <Image source={require('../../assets/icons/material-symbols_home-rounded.png')} style={localStyles.navIcon} resizeMode="contain" />
+              </View>
+          </TouchableOpacity>
+  
+          <TouchableOpacity style={localStyles.navButtonActive}>
+            <View style={localStyles.navIconWrapperActive}>
+                <Image source={require('../../assets/icons/proicons_save-pencil.png')} style={localStyles.navIcon} resizeMode="contain" />
+                <Text style={localStyles.navTextActive}>Manage</Text>
             </View>
+          </TouchableOpacity>
+  
+          <TouchableOpacity style={localStyles.navButton} onPress={() => navigation.navigate('AddManager')}>
+            <View style={localStyles.navIconWrapper}>
+                <Image source={require('../../assets/icons/f7_person-3-fill.png')} style={localStyles.navIcon} resizeMode="contain" />
+            </View>
+          </TouchableOpacity>
+      </View>
       
-      {/* Background Logo */}
-      <Image
-        source={require('../../assets/images/logo-ugn.png')}
-        style={localStyles.backgroundLogo}
-        resizeMode="contain"
-      />
+      <Image source={require('../../assets/images/logo-ugn.png')} style={localStyles.backgroundLogo} resizeMode="contain" />
     </SafeAreaView>
   );
 };
 
+// ============================================
+// 🎨 STYLES (ASLI DARI FILE ANDA + STYLE LABEL CHART)
+// ============================================
 const localStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#015023', // Hijau tua
+    backgroundColor: '#015023',
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 100, // Ruang untuk bottom nav
+    paddingBottom: 100,
   },
   headerContainer: {
     width: '100%',
@@ -342,7 +364,7 @@ const localStyles = StyleSheet.create({
     width: '100%',
     height: 70,
     justifyContent: 'center',
-    backgroundColor: '#DABC4E', // Emas/Kuning pada header
+    backgroundColor: '#DABC4E',
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
   },
@@ -371,7 +393,7 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000000',
     textAlign: 'center',
-    marginRight: 28, // Untuk mengkompensasi tombol back
+    marginRight: 28,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -393,7 +415,6 @@ const localStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#ffffffff',
-    
   },
   inactiveTab: {
     backgroundColor: '#bbbbbbff',
@@ -476,86 +497,29 @@ const localStyles = StyleSheet.create({
     height: 24,
     tintColor: '#000000',
   },
-  donutChartContainer: {
-    alignItems: 'center',
-  },
-  donutChartWrapper: {
-    width: 250,
-    height: 250,
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  donutBase: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: '#38A169',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  segmentRed: {
+  
+  // STYLE LABEL MENGAMBANG (BUBBLE)
+  floatingLabel: {
     position: 'absolute',
-    width: 250,
-    height: 250,
-    backgroundColor: '#DC2626',
-  },
-  segmentGreen: {
-    position: 'absolute',
-    width: 250,
-    height: 250,
-    backgroundColor: '#38A169',
-    borderRadius: 125,
-    transform: [{ rotate: '100deg' }],
-    right: -60,
-    zIndex: 2,
-  },
-  segmentYellow: {
-    position: 'absolute',
-    width: 250,
-    height: 900,
-    backgroundColor: '#DABC4E',
-    borderRadius: 30,
-    top: -400,
-    right: 150,
-    transform: [{ rotate: '45deg' }],
-    zIndex: 1,
-  },
-  donutChartCenter: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: '#FEFAE0',
-    position: 'absolute',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  donutCenterValue: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#000000',
-  },
-  percentLabel: {
-    position: 'absolute',
-    zIndex: 11,
-    backgroundColor: 'white',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 3,
-    elevation: 3,
+    elevation: 4,
+    zIndex: 10,
   },
   percentText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
   },
+
   legendContainer: {
     width: '100%',
+    marginTop: 20,
   },
   legendItem: {
     flexDirection: 'row',
@@ -594,17 +558,6 @@ const localStyles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
-  actionButtonSecondary: {
-    backgroundColor: '#DABC4E',
-    borderRadius: 30,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#000000',
-  },
   actionButtonText: {
     fontSize: 15,
     fontWeight: 'bold',
@@ -620,6 +573,15 @@ const localStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     color: '#000000',
+  },
+  backgroundLogo: {
+    position: 'absolute',
+    bottom: -350,
+    alignSelf: 'center',
+    width: 950,
+    height: 950,
+    opacity: 0.15,
+    zIndex: -1,
   },
   bottomNavContainer: {
     position: 'absolute',
@@ -638,6 +600,8 @@ const localStyles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 5,
+    borderWidth: 2,
+    borderColor: '#DABC4E',
   },
   navButton: {
     flex: 1,
@@ -658,35 +622,25 @@ const localStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   navIconWrapperActive: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 25,
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: '#000000',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 25,
+    backgroundColor: '#DABC4E',
+    borderWidth: 1,
+    borderColor: '#000000',
   },
-  navIconImage: {
+  navIcon: {
     width: 24,
     height: 24,
     tintColor: '#000000',
   },
   navTextActive: {
+    marginLeft: 8,
     fontSize: 12,
     fontWeight: 'bold',
     color: '#000000',
-  },
-  backgroundLogo: {
-    position: 'absolute',
-    bottom: -350,
-    alignSelf: 'center',
-    width: 950,
-    height: 950,
-    opacity: 0.15,
-    zIndex: -1,
   },
 });
 

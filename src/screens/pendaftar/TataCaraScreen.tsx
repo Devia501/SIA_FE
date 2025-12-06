@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ImageBackground,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -17,8 +18,59 @@ import LinearGradient from 'react-native-linear-gradient';
 
 type TataCaraNavigationProp = NativeStackNavigationProp<PendaftarStackParamList, 'TataCara'>;
 
+// 🔑 LOGIKA STATUS DARI DASHBOARD (SIMULASI API)
+interface Profile {
+  registration_status?: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
+}
+type RegistrationStatus = Profile['registration_status'];
+
+const registrationService = {
+  // Mock function: Ganti dengan implementasi API yang sebenarnya dari file apiService Anda
+  getProfile: async (): Promise<Profile> => {
+    // Simulasi status belum mendaftar (kosongan)
+    throw new Error('404'); // <--- GANTI INI: Simulasi status 'kosongan'
+    // return { registration_status: 'submitted' }; 
+  }
+};
+// END LOGIKA STATUS MOCK
+
 const TataCaraScreen = () => {
   const navigation = useNavigation<TataCaraNavigationProp>();
+  
+  // 🔑 STATUS STATE BARU
+  const [isStatusLoading, setIsStatusLoading] = useState(false);
+
+  // 泊 FUNGSI NAVIGASI STATUS DINAMIS
+  const handleStatusNavigation = useCallback(async () => {
+    setIsStatusLoading(true);
+    try {
+        const profile = await registrationService.getProfile();
+        const status = profile.registration_status;
+  
+    if (!status) { 
+        navigation.navigate('StatusPendaftaranAwal' as any);
+    } else if (status === 'submitted') {
+        navigation.navigate('TungguKonfirmasi' as any);
+    } else {
+        navigation.navigate('StatusPendaftaranDone' as any);
+    }
+    } catch (e: any) { // Pastikan tipe e adalah any
+        
+        // ✅ PERUBAHAN INTI: Cek jika pesan error mengandung '404'
+        const isExpectedError = (e.message && e.message.includes('404')) || 
+                                (e.message && e.message.includes('Profil tidak ditemukan'));
+
+        if (!isExpectedError) {
+            // Cetak error ke konsol hanya jika ini BUKAN error 404/Profil tidak ditemukan yang disimulasikan
+            console.error("Gagal cek status pendaftaran:", e);
+        }
+
+        // Navigasi ke StatusPendaftaranAwal (ini yang menangani status 'kosongan')
+        navigation.navigate('StatusPendaftaranAwal' as any);
+    } finally {
+        setIsStatusLoading(false);
+    }
+  }, [navigation]);
 
   return (
     <SafeAreaView style={PendaftarStyles.container} edges={['top']}>
@@ -185,7 +237,7 @@ const TataCaraScreen = () => {
           </View>
 
           <TouchableOpacity style={styles.daftarButton}
-          onPress={() => navigation.navigate('InformasiPenting')}>
+          onPress={() => navigation.navigate('InformasiPenting' as any)}>
             <LinearGradient
                 colors={['#DABC4E', '#F5EFD3']}
                 start={{ x: 0, y: 0.5 }}
@@ -197,6 +249,7 @@ const TataCaraScreen = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Bottom Nav Section */}
         <View style={[PendaftarStyles.bottomNav, styles.nav]}>
           <TouchableOpacity style={PendaftarStyles.navItem}
           onPress={() => navigation.navigate('PendaftarDashboard')}>
@@ -218,13 +271,20 @@ const TataCaraScreen = () => {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={PendaftarStyles.navItem}
-          onPress={() => navigation.navigate('StatusPendaftaranAwal')}>
-            <Image
-                  source={require('../../assets/icons/fluent_shifts-activity.png')}
-                  style={PendaftarStyles.navIconImage}
-                  resizeMode="contain"
-                />
+          <TouchableOpacity 
+            style={PendaftarStyles.navItem}
+            onPress={handleStatusNavigation} 
+            disabled={isStatusLoading}
+          >
+            {isStatusLoading ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Image
+                source={require('../../assets/icons/fluent_shifts-activity.png')}
+                style={PendaftarStyles.navIconImage}
+                resizeMode="contain"
+              />
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={PendaftarStyles.navItem}
