@@ -11,6 +11,7 @@ import {
   Animated,
   Dimensions,
   ActivityIndicator,
+  Alert, // ✅ Pastikan Alert diimport
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -22,7 +23,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationService } from '../../services/notificationService';
 
-// 🔑 IMPORT SERVICE & TYPE
+// 泊 IMPORT SERVICE & TYPE
 import { registrationService, Profile, Document } from '../../services/apiService'; 
 
 const { width } = Dimensions.get('window');
@@ -38,9 +39,12 @@ const DashboardScreen = () => {
   const slideAnim = useState(new Animated.Value(-width * 0.7))[0];
   
   // State untuk status pendaftar
-  const [registrationStatus, setRegistrationStatus] = useState<'draft' | 'submitted' | 'approved' | 'rejected' | null>(null); 
+  const [registrationStatus, setRegistrationStatus] = useState<'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected' | null>(null); 
   
-  // 🔑 STATE BARU: Penanda apakah sudah ada dokumen yang direview
+  // 泊 STATE BARU: Simpan data profil lengkap untuk dikirim ke layar Hasil
+  const [profileData, setProfileData] = useState<Profile | null>(null);
+
+  // 泊 STATE BARU: Penanda apakah sudah ada dokumen yang direview
   const [hasDocumentFeedback, setHasDocumentFeedback] = useState(false);
   
   const [isStatusLoading, setIsStatusLoading] = useState(true);
@@ -56,31 +60,35 @@ const DashboardScreen = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // 🔑 LOGIKA LOAD STATUS & DOKUMEN
+  // 泊 LOGIKA LOAD STATUS & DOKUMEN
   const loadRegistrationStatus = async () => {
       try {
           // 1. Ambil Profile untuk status utama
           const profile: Profile = await registrationService.getProfile();
           
-          if (profile && profile.registration_status) {
-             setRegistrationStatus(profile.registration_status);
+          if (profile) {
+             // 泊 UPDATE: Simpan data profil lengkap ke state
+             setProfileData(profile); 
 
-             // 2. 🔑 CEK DOKUMEN: Jika status masih 'submitted', kita cek detail dokumennya
-             if (profile.registration_status === 'submitted') {
-                 const docs: Document[] = await registrationService.getDocuments();
-                 
-                 // Cek apakah ada dokumen yang statusnya SUDAH BUKAN pending
-                 const feedbackExists = docs.some(d => 
-                     d.verification_status === 'approved' || d.verification_status === 'rejected'
-                 );
-                 
-                 setHasDocumentFeedback(feedbackExists);
+             if (profile.registration_status) {
+                setRegistrationStatus(profile.registration_status);
+
+                // 2. 泊 CEK DOKUMEN: Jika status masih 'submitted', kita cek detail dokumennya
+                if (profile.registration_status === 'submitted') {
+                    const docs: Document[] = await registrationService.getDocuments();
+                    
+                    // Cek apakah ada dokumen yang statusnya SUDAH BUKAN pending
+                    const feedbackExists = docs.some(d => 
+                        d.verification_status === 'approved' || d.verification_status === 'rejected'
+                    );
+                    
+                    setHasDocumentFeedback(feedbackExists);
+                } else {
+                    setHasDocumentFeedback(false);
+                }
              } else {
-                 setHasDocumentFeedback(false);
+                setRegistrationStatus('draft');
              }
-
-          } else {
-             setRegistrationStatus('draft');
           }
       } catch (e: any) {
           console.log("Status Load Info:", e.message); 
@@ -100,6 +108,30 @@ const DashboardScreen = () => {
       setUnreadCount(0);
     }
   };
+
+  // 泊 LOGIKA BARU: Handle Klik Pengumuman
+  const handleAnnouncementPress = () => {
+    navigation.navigate('PengumumanListScreen' as any); 
+  };
+
+  // =========================================================================
+  // 🛡️ LOGIKA BARU: HANDLE KLIK DAFTAR (Mencegah submit ulang)
+  // =========================================================================
+  const handleRegisterPress = () => {
+    // Jika status ada DAN bukan 'draft', berarti sudah pernah submit
+    if (registrationStatus && registrationStatus !== 'draft') {
+      Alert.alert(
+        "Pendaftaran Sedang Diproses",
+        "Anda sudah mengirimkan formulir pendaftaran. Mohon tunggu proses verifikasi atau cek menu 'Status Pendaftaran'.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    
+    // Jika belum daftar (null) atau masih draft, boleh lanjut
+    navigation.navigate('TataCara');
+  };
+  // =========================================================================
 
   const userName = user?.name || 'Calon Mahasiswa';
   const getInitials = (name: string) => {
@@ -140,7 +172,7 @@ const DashboardScreen = () => {
     }
   };
   
-  // 🔑 LOGIKA NAVIGASI YANG DIPERBARUI
+  // 泊 LOGIKA NAVIGASI STATUS (Icon Bawah)
   const handleStatusNavigation = () => {
       if (isStatusLoading) return;
 
@@ -154,13 +186,9 @@ const DashboardScreen = () => {
 
       // 2. Status 'submitted' (Pending)
       if (registrationStatus === 'submitted') {
-        // 🔑 LOGIKA BARU: 
-        // Jika sudah ada feedback dokumen (meski status profil masih submitted),
-        // Arahkan ke StatusPendaftaranProses
         if (hasDocumentFeedback) {
             navigation.navigate('StatusPendaftaranProses' as any);
         } else {
-            // Jika belum ada feedback sama sekali, ke TungguKonfirmasi
             navigation.navigate('TungguKonfirmasi' as any);
         }
         return;
@@ -269,18 +297,30 @@ const DashboardScreen = () => {
             </TouchableOpacity>
           </View>
 
+          {/* ========================================================== */}
+          {/* 🛡️ UPDATE: TOMBOL DAFTAR DENGAN LOGIC DISABLE & WARNA */}
+          {/* ========================================================== */}
           <TouchableOpacity 
-          onPress={() => navigation.navigate('TataCara')}>
+          onPress={handleRegisterPress}>
             <LinearGradient
-                colors={['#DABC4E', '#F5EFD3']}
+                colors={
+                    (registrationStatus && registrationStatus !== 'draft')
+                    ? ['#A0A0A0', '#D3D3D3'] // Warna Abu-abu jika sudah submit
+                    : ['#DABC4E', '#F5EFD3'] // Warna Emas Normal
+                }
                 start={{ x: 0, y: 1 }}
                 end={{ x: 1, y: 1 }}
                 style={PendaftarStyles.registerButton}
               >
-                <Text style={PendaftarStyles.registerButtonText}>Daftar Mahasiswa Baru</Text>
-              </LinearGradient>
+                <Text style={PendaftarStyles.registerButtonText}>
+                    {(registrationStatus && registrationStatus !== 'draft') 
+                    ? "Pendaftaran Terkirim" 
+                    : "Daftar Mahasiswa Baru"}
+                </Text>
+            </LinearGradient>
           </TouchableOpacity>
 
+          {/* BAGIAN BERITA / PENGUMUMAN */}
           <View style={PendaftarStyles.newsSection}>
             <View style={PendaftarStyles.newsCard}>
               <Text style={PendaftarStyles.newsTitle}>Berita Terbaru</Text>
@@ -288,7 +328,11 @@ const DashboardScreen = () => {
                 <Text style={PendaftarStyles.newsCardTitle}>
                 Selamat Kepada Calon Mahasiswa Baru
               </Text>
-              <TouchableOpacity style={PendaftarStyles.newsCardContent}>
+              
+              <TouchableOpacity 
+                style={PendaftarStyles.newsCardContent}
+                onPress={handleAnnouncementPress}
+              >
                 <Text style={PendaftarStyles.newsCardText}>
                   Klik disini untuk melihat pengumuman!
                 </Text>
@@ -357,6 +401,7 @@ const DashboardScreen = () => {
         resizeMode="contain"
       />
 
+      {/* Drawer Modal (Tetap sama) */}
       <Modal
         visible={isDrawerOpen}
         transparent={true}

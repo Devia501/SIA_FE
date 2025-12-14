@@ -25,7 +25,7 @@ import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
 import { pick, types } from '@react-native-documents/picker';
 
-// ✅ IMPORT SERVICE (Payment + Registration untuk ambil Nama)
+// ✅ IMPORT SERVICE
 import apiService, { paymentService, registrationService, Payment, PaymentMethod, Profile } from '../../services/apiService';
 
 type RincianBiayaNavigationProp = NativeStackNavigationProp<
@@ -56,7 +56,7 @@ const RincianBiayaPendaftaranScreen = () => {
 
   // State Data
   const [payment, setPayment] = useState<Payment | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null); // ✅ Balikin State Profile untuk Nama
+  const [profile, setProfile] = useState<Profile | null>(null);
   
   const [manualMethods, setManualMethods] = useState<PaymentMethod[]>([]);
   const [autoMethods, setAutoMethods] = useState<PaymentMethod[]>([]);
@@ -87,17 +87,14 @@ const RincianBiayaPendaftaranScreen = () => {
     try {
       if (!refreshing) setLoading(true);
 
-      // ✅ Ambil Payment DAN Profile secara bersamaan
-      // Profile dibutuhkan hanya untuk menampilkan Nama Lengkap yang benar
       const [paymentRes, profileRes] = await Promise.allSettled([
         paymentService.getMyPayment(),
         registrationService.getProfile()
       ]);
 
-      // 1. Handle Profile (Ambil Nama)
+      // 1. Handle Profile
       if (profileRes.status === 'fulfilled' && profileRes.value) {
         setProfile(profileRes.value);
-        // Auto-fill nama pengirim dari profil
         if (profileRes.value.full_name) {
             setSenderName(profileRes.value.full_name);
         }
@@ -109,7 +106,6 @@ const RincianBiayaPendaftaranScreen = () => {
         setPayment(paymentRes.value.payment);
         processMethods(paymentRes.value.available_payment_methods);
         
-        // Fallback: kalau profil gagal load, coba ambil nama dari payment user
         if (profileRes.status !== 'fulfilled' && paymentRes.value.payment.user?.name) {
              setSenderName(paymentRes.value.payment.user.name);
         }
@@ -129,7 +125,6 @@ const RincianBiayaPendaftaranScreen = () => {
 
   const handlePaymentError = (error: any) => {
        const status = error?.status || error?.response?.status;
-       // Fallback Mode Offline
        if (status === 500 || error?.message?.includes('Network Error')) {
           console.log("⚠️ Mode Hybrid Aktif");
           setIsHybridMode(true);
@@ -249,7 +244,6 @@ const RincianBiayaPendaftaranScreen = () => {
        const errorData = error?.data || {}; 
        const backendErrorMsg = errorData?.error || error?.message || ""; 
 
-       // ⚠️ BYPASS BUG BACKEND
        if (error.status === 500 && JSON.stringify(backendErrorMsg).includes('undefined relationship')) {
            console.log("⚠️ Mengabaikan Bug Backend. Upload dianggap Sukses.");
            handleSuccessAction();
@@ -272,7 +266,13 @@ const RincianBiayaPendaftaranScreen = () => {
       Alert.alert("Sukses", "Bukti pembayaran berhasil dikirim.", [
         { text: "OK", onPress: () => { 
             fetchData(); 
-            navigation.navigate('VerifikasiDokumenScreen' as any); 
+            if (payment?.status === 'rejected') {
+                // @ts-ignore
+                navigation.navigate('StatusPendaftaranProses');
+            } else {
+                // @ts-ignore
+                navigation.navigate('VerifikasiDokumenScreen'); 
+            }
         }}
       ]);
   };
@@ -286,12 +286,11 @@ const RincianBiayaPendaftaranScreen = () => {
     );
   }
 
-  // Render Method Item
   const renderMethodItem = (item: PaymentMethod) => (
     <View key={item.id} style={localStyles.detailCard}>
         <View style={localStyles.detailHeader}>
             <Image 
-                source={item.method_type === 'bank_transfer' 
+                source={item.method_type === 'bank_transfer'
                     ? require('../../assets/icons/bank.png') 
                     : require('../../assets/icons/Vector-1.png')} 
                 style={localStyles.detailIcon} 
@@ -368,7 +367,6 @@ const RincianBiayaPendaftaranScreen = () => {
             
             <View style={localStyles.summaryRow}>
               <Image source={require('../../assets/icons/Vector.png')} style={localStyles.summaryIcon} resizeMode="contain" />
-              {/* ✅ Gunakan Profile.full_name, jika kosong fallback ke User.name */}
               <Text style={localStyles.summaryLabel}>
                 {profile?.full_name || payment?.user?.name || 'Nama Tidak Tersedia'}
               </Text>
@@ -376,7 +374,6 @@ const RincianBiayaPendaftaranScreen = () => {
 
             <View style={localStyles.summaryRow}>
               <Image source={require('../../assets/icons/Frame.png')} style={localStyles.summaryIcon} resizeMode="contain" />
-              {/* ✅ Gunakan Payment Code (karena profile belum tentu ada no reg) */}
               <Text style={localStyles.summaryLabel}>
                 {payment?.payment_code || '-'}
               </Text>
@@ -390,17 +387,40 @@ const RincianBiayaPendaftaranScreen = () => {
             </View>
           </View>
 
-          {payment && (payment.status === 'pending' || payment.status === 'rejected') && (
-            <View style={localStyles.timerSection}>
-                <View style={[localStyles.timerBox, payment.status === 'rejected' && {borderColor: '#BE0414'}]}>
-                <Text style={[localStyles.timerTitle, payment.status === 'rejected' && {color: '#BE0414'}]}>
-                    {payment.status === 'rejected' ? 'Pembayaran Ditolak' : 'Batas Waktu Pembayaran'}
+          {/* ========================================================= */}
+          {/* ✅ LOGIKA TAMPILAN: PENDING (TIMER) vs REJECTED (INFO) */}
+          {/* ========================================================= */}
+          
+          {/* JIKA STATUS REJECTED -> TAMPILKAN KOTAK PENOLAKAN */}
+          {payment?.status === 'rejected' && (
+             <View style={localStyles.rejectedContainer}>
+                <View style={localStyles.rejectedHeader}>
+                   {/* Anda bisa ganti icon ini dengan icon alert/warning */}
+                   <Text style={{fontSize:16, marginRight:5}}>⚠️</Text> 
+                   <Text style={localStyles.rejectedTitle}>Pembayaran Ditolak</Text>
+                </View>
+
+                <Text style={localStyles.rejectedLabel}>Alasan:</Text>
+                <View style={localStyles.rejectedReasonBox}>
+                   <Text style={localStyles.rejectedReasonText}>
+                     {payment.rejection_reason || "Bukti tidak jelas atau nominal tidak sesuai."}
+                   </Text>
+                </View>
+
+                <Text style={localStyles.rejectedInstruction}>
+                   Silakan gunakan tombol "Upload Ulang Bukti" di bawah untuk memperbaiki data.
                 </Text>
-                {payment.status === 'pending' && (
-                    <Text style={localStyles.timerText}>
-                        {formatTime(timeLeft.hours)} : {formatTime(timeLeft.minutes)} : {formatTime(timeLeft.seconds)}
-                    </Text>
-                )}
+             </View>
+          )}
+
+          {/* JIKA STATUS PENDING -> TAMPILKAN TIMER */}
+          {payment?.status === 'pending' && (
+            <View style={localStyles.timerSection}>
+                <View style={localStyles.timerBox}>
+                <Text style={localStyles.timerTitle}>Batas Waktu Pembayaran</Text>
+                <Text style={localStyles.timerText}>
+                     {formatTime(timeLeft.hours)} : {formatTime(timeLeft.minutes)} : {formatTime(timeLeft.seconds)}
+                </Text>
                 </View>
             </View>
           )}
@@ -591,10 +611,62 @@ const localStyles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   summaryIcon: { width: 15, height: 15, marginRight: 10 },
   summaryLabel: { fontSize: 13, color: '#000' },
+  
+  // ✅ STYLES UNTUK REJECTED STATE
+  rejectedContainer: {
+    backgroundColor: '#FFF5F5', 
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#BE0414', 
+    padding: 20,
+    marginBottom: 25,
+  },
+  rejectedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFCCD0',
+    paddingBottom: 8,
+  },
+  rejectedTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#BE0414',
+  },
+  rejectedLabel: {
+    fontSize: 12,
+    color: '#000',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  rejectedReasonBox: {
+    backgroundColor: '#FFFFFF',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFCCD0',
+    marginBottom: 10,
+  },
+  rejectedReasonText: {
+    color: '#BE0414',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  rejectedInstruction: {
+    fontSize: 12,
+    color: '#015023',
+    fontWeight: 'bold',
+    fontStyle: 'italic',
+  },
+
+  // STYLES TIMER (EXISTING)
   timerSection: { marginBottom: 25 },
   timerTitle: { fontSize: 13, fontWeight: '600', color: '#015023', marginBottom: 10, right: 70, bottom: 6 },
   timerBox: { backgroundColor: '#F5EFD3', borderRadius: 15, borderWidth: 2, borderColor: '#DABC4E', paddingVertical: 12, paddingHorizontal: 20, alignItems: 'center' },
   timerText: { fontSize: 20, fontWeight: 'bold', color: '#000000ff', letterSpacing: 2, marginBottom: 10 },
+  
+  // STYLES LAIN
   sectionTitle: { fontSize: 13, fontWeight: '400', color: '#F5EFD3', marginBottom: 12, textAlign: 'left' },
   methodToggle: { flexDirection: 'row', backgroundColor: '#F5EFD3', borderRadius: 25, borderWidth: 1, borderColor: '#000', overflow: 'hidden', marginBottom: 20, alignSelf: 'center', width: '80%' },
   methodButton: { flex: 1, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },

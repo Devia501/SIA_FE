@@ -41,6 +41,7 @@ export const AdminStyles = StyleSheet.create({
     position: 'relative', 
   },
   headerTitle: {
+    marginLeft: 18,
     fontSize: 20,
     fontWeight: 'bold',
     color: '#000000ff',

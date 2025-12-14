@@ -27,6 +27,13 @@ import { managerService, PaymentDetail } from '../../services/managerService';
 
 type VerifikasiPembayaranNavigationProp = NativeStackNavigationProp<ManagerStackParamList, 'VerifikasiPembayaran'>;
 
+// Interface Lokal untuk Pengecekan Dokumen (Diperbarui agar lebih fleksibel)
+interface SimpleDocument {
+  id_document: number;
+  verification_status?: string;
+  status?: string; // Jaga-jaga jika backend pakai field 'status'
+}
+
 // ============================================
 // 1. KOMPONEN MODAL AKSI (VERIFIKASI/TOLAK)
 // ============================================
@@ -122,34 +129,58 @@ const VerifikasiPembayaran = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [payment, setPayment] = useState<PaymentDetail | null>(null);
   
-  // State Modal Aksi
+  const [areDocumentsVerified, setAreDocumentsVerified] = useState(false);
+  
   const [showActionModal, setShowActionModal] = useState(false);
   const [currentAction, setCurrentAction] = useState<'Verify' | 'Reject' | null>(null);
 
-  // 1. FETCH DATA PEMBAYARAN
-  const fetchPayment = useCallback(async () => {
+  // 1. FETCH DATA PEMBAYARAN & DOKUMEN
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await managerService.getApplicantPayment(id_profile);
-      if (response.success && response.data) {
-        setPayment(response.data);
+      const [paymentRes, docsRes] = await Promise.all([
+        managerService.getApplicantPayment(id_profile).catch(e => ({ success: false, data: null })),
+        managerService.getApplicantDocuments(id_profile).catch(e => ({ success: false, data: { documents: [] } }))
+      ]);
+
+      // Handle Pembayaran
+      if (paymentRes.success && paymentRes.data) {
+        setPayment(paymentRes.data);
       } else {
-        Alert.alert("Info", "Pendaftar ini belum melakukan pembayaran atau data tidak ditemukan.");
-        navigation.goBack();
-      }
-    } catch (error: any) {
-        // Jika 404, berarti belum upload
-        console.log("Payment fetch error:", error);
         Alert.alert("Info", "Data pembayaran tidak ditemukan.");
-        navigation.goBack();
+      }
+
+      // 🆕 PERBAIKAN: Handle Pengecekan Dokumen Case-Insensitive
+      if (docsRes.success && docsRes.data && docsRes.data.documents) {
+        const docs: SimpleDocument[] = docsRes.data.documents;
+        
+        if (docs.length > 0) {
+            const allApproved = docs.every(doc => {
+                // Ambil status dari field verification_status ATAU status
+                const rawStatus = doc.verification_status || doc.status || 'pending';
+                // Bandingkan dengan huruf kecil semua
+                return rawStatus.toLowerCase() === 'approved';
+            });
+            setAreDocumentsVerified(allApproved);
+            
+            // Debugging Log (Opsional, hapus saat production)
+            console.log("Documents Status Check:", allApproved, docs.map(d => d.verification_status));
+        } else {
+            // Jika tidak ada dokumen, anggap belum verified (karena biasanya ada dokumen wajib)
+            setAreDocumentsVerified(false);
+        }
+      }
+
+    } catch (error: any) {
+        console.log("Fetch error:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [id_profile, navigation]);
+  }, [id_profile]);
 
   useEffect(() => {
-    fetchPayment();
-  }, [fetchPayment]);
+    fetchData();
+  }, [fetchData]);
 
   // 2. HANDLER TOMBOL UI
   const triggerVerify = () => {
@@ -176,7 +207,7 @@ const VerifikasiPembayaran = () => {
 
       Alert.alert("Sukses", `Pembayaran berhasil di-${status === 'verified' ? 'verifikasi' : 'tolak'}.`);
       setShowActionModal(false);
-      fetchPayment(); // Refresh data
+      fetchData(); 
     } catch (error: any) {
       Alert.alert("Gagal", error.message);
     } finally {
@@ -184,7 +215,7 @@ const VerifikasiPembayaran = () => {
     }
   };
 
-  // 4. HANDLER VIEW IMAGE (SECURE)
+  // 4. HANDLER VIEW IMAGE
   const handleViewFullImage = async () => {
     if (!payment?.payment_proof_file) {
       Alert.alert("Error", "File bukti transfer tidak tersedia.");
@@ -193,13 +224,10 @@ const VerifikasiPembayaran = () => {
 
     try {
       const token = await AsyncStorage.getItem('token');
-      // Asumsi API endpoint untuk file private
-      // Sesuaikan URL ini dengan route di Laravel: Route::get('admin/payment-file/{id}', ...)
       const BASE_URL = 'http://172.27.86.208:8000/api'; 
       const url = `${BASE_URL}/admin/payment-file/${payment.id}?token=${token}`;
       
       Linking.openURL(url).catch(err => {
-        console.error("Failed opening URL:", err);
         Alert.alert("Error", "Tidak dapat membuka gambar.");
       });
     } catch (e) {
@@ -207,16 +235,22 @@ const VerifikasiPembayaran = () => {
     }
   };
 
-  // 5. HANDLER FINAL DECISION (LULUS/TIDAK LULUS PENDAFTAR)
+  // 5. HANDLER FINAL DECISION
   const handleFinalDecision = async (status: 'approved' | 'rejected') => {
-    if (!payment || payment.status !== 'verified') {
-        Alert.alert("Perhatian", "Pastikan pembayaran sudah diverifikasi (status: verified) sebelum meluluskan pendaftar.");
-        return;
+    if (status === 'approved') {
+        if (!payment || payment.status !== 'verified') {
+            Alert.alert("Perhatian", "Pembayaran belum diverifikasi.");
+            return;
+        }
+        if (!areDocumentsVerified) {
+            Alert.alert("Perhatian", "Semua dokumen harus berstatus Approved sebelum meluluskan pendaftar.");
+            return;
+        }
     }
 
     Alert.alert(
-      "Konfirmasi",
-      `Apakah Anda yakin menyatakan pendaftar ini ${status === 'approved' ? 'LULUS' : 'TIDAK LULUS'}?`,
+      "Konfirmasi Keputusan",
+      `Apakah Anda yakin menyatakan pendaftar ini ${status === 'approved' ? 'LULUS' : 'TIDAK LULUS'}? \n\nTindakan ini bersifat final dan akan mengirim notifikasi ke pendaftar.`,
       [
         { text: "Batal", style: 'cancel' },
         { 
@@ -226,10 +260,10 @@ const VerifikasiPembayaran = () => {
             try {
               await managerService.updateApplicantStatus(id_profile, {
                 status: status,
-                notes: status === 'approved' ? 'Lulus Seleksi Administrasi & Pembayaran' : 'Tidak Lulus Seleksi'
+                notes: status === 'approved' ? 'Selamat! Anda dinyatakan Lulus Seleksi.' : 'Mohon maaf, Anda belum lulus seleksi.'
               });
               Alert.alert("Sukses", `Status pendaftar diperbarui menjadi: ${status.toUpperCase()}`);
-              navigation.navigate('KelolaPendaftaran'); // Kembali ke list
+              navigation.navigate('KelolaPendaftaran'); 
             } catch (error: any) {
               Alert.alert("Gagal", error.message);
             } finally {
@@ -248,6 +282,10 @@ const VerifikasiPembayaran = () => {
       </SafeAreaView>
     );
   }
+
+  // Logic tombol final
+  const isPaymentVerified = payment?.status === 'verified';
+  const isReadyToApprove = isPaymentVerified && areDocumentsVerified;
 
   return (
       <SafeAreaView style={AdminStyles.container} edges={['top', 'bottom']}>
@@ -277,7 +315,6 @@ const VerifikasiPembayaran = () => {
         
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={localStyles.scrollContent}>
           
-          {/* Label Verifikasi Pembayaran */}
           <View style={localStyles.verifikasiLabelContainer}>
             <Text style={localStyles.verifikasiLabelText}>Verifikasi Pembayaran: {name}</Text>
           </View>
@@ -293,7 +330,6 @@ const VerifikasiPembayaran = () => {
             
             <Text style={localStyles.paymentName}>{payment?.payment_code}</Text>
             
-            {/* Detail List */}
             <View style={localStyles.detailRow}>
               <Image source={require('../../assets/icons/material-symbols_money-bag-rounded.png')} style={localStyles.detailIcon} />
               <Text style={localStyles.detailText}>Jumlah: Rp {payment?.paid_amount?.toLocaleString()}</Text>
@@ -307,7 +343,7 @@ const VerifikasiPembayaran = () => {
               <Text style={localStyles.detailText}>Tanggal: {payment?.payment_date}</Text>
             </View>
 
-            {/* Tombol Aksi (Hanya muncul jika belum verified/rejected) */}
+            {/* Tombol Aksi */}
             {payment?.status !== 'verified' && payment?.status !== 'rejected' && (
                 <View style={localStyles.actionButtonContainer}>
                 <TouchableOpacity style={localStyles.verifyButton} onPress={triggerVerify}>
@@ -320,7 +356,7 @@ const VerifikasiPembayaran = () => {
             )}
           </View>
 
-          {/* CARD 2: Transfer Receipt Preview */}
+          {/* CARD 2: Transfer Receipt */}
           <View style={[localStyles.cardBase, localStyles.receiptPreviewCard]}>
             <View style={localStyles.receiptHeader}>
               <Image source={require('../../assets/icons/File.png')} style={localStyles.receiptFileIcon} />
@@ -350,14 +386,27 @@ const VerifikasiPembayaran = () => {
             </LinearGradient>
           </View>
 
-          {/* CARD 3: Final Acceptance (Hanya aktif jika pembayaran verified) */}
+          {/* WARNING BOX */}
+          {!isReadyToApprove && (
+              <View style={localStyles.warningBox}>
+                <Text style={localStyles.warningText}>⚠️ Syarat Kelulusan:</Text>
+                <Text style={[localStyles.warningItem, isPaymentVerified ? localStyles.textOk : localStyles.textPending]}>
+                   {isPaymentVerified ? '✅' : '❌'} Pembayaran Terverifikasi
+                </Text>
+                <Text style={[localStyles.warningItem, areDocumentsVerified ? localStyles.textOk : localStyles.textPending]}>
+                   {areDocumentsVerified ? '✅' : '❌'} Semua Dokumen Approved
+                </Text>
+              </View>
+          )}
+
+          {/* CARD 3: Final Acceptance */}
           <View style={[localStyles.cardBase, localStyles.finalActionCard, 
-             (payment?.status !== 'verified') && {opacity: 0.5} 
+             (!isReadyToApprove) && {opacity: 0.6} 
           ]}>
             <TouchableOpacity 
-                style={localStyles.acceptPendaftarButton} 
+                style={[localStyles.acceptPendaftarButton, !isReadyToApprove && {backgroundColor: '#aaa', borderColor: '#888'}]} 
                 onPress={() => handleFinalDecision('approved')}
-                disabled={payment?.status !== 'verified' || isProcessing}
+                disabled={!isReadyToApprove || isProcessing}
             >
               <Text style={localStyles.acceptPendaftarText}>LULUSKAN PENDAFTAR</Text>
             </TouchableOpacity>
@@ -374,7 +423,6 @@ const VerifikasiPembayaran = () => {
           <View style={{ height: 40 }} />
         </ScrollView>
         
-        {/* Modal Konfirmasi Verify/Reject */}
         <ActionModal 
             isVisible={showActionModal}
             actionType={currentAction}
@@ -383,7 +431,6 @@ const VerifikasiPembayaran = () => {
             isLoading={isProcessing}
         />
 
-        {/* Logo Background */}
         <Image
           source={require('../../assets/images/logo-ugn.png')}
           style={AdminStyles.backgroundLogo}
@@ -576,6 +623,33 @@ const localStyles = StyleSheet.create({
     textAlign: 'center',
     top: 6,
   },
+  warningBox: {
+    backgroundColor: '#FFF',
+    width: '100%',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#BE0414',
+    borderStyle: 'dashed',
+  },
+  warningText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#BE0414',
+    marginBottom: 5,
+  },
+  warningItem: {
+    fontSize: 12,
+    marginLeft: 10,
+  },
+  textOk: {
+    color: '#189653',
+    fontWeight: 'bold',
+  },
+  textPending: {
+    color: '#BE0414',
+  },
   finalActionCard: {
     alignItems: 'stretch',
     padding: 20,
@@ -608,7 +682,6 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
   },
   
-  // MODAL STYLES
   modalCenteredView: {
     flex: 1,
     justifyContent: 'center',

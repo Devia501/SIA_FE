@@ -1,6 +1,6 @@
-// src/screens/pendaftar/VerifikasiPembayaranBerhasil.tsx
+// src/screens/pendaftar/VerifikasiPembayaranBerhasil.tsx (Filename: VerifikasiDokumen.tsx)
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,21 +9,22 @@ import {
   ScrollView,
   Image,
   StyleSheet,
+  ActivityIndicator, // Tambahkan ini
+  Alert, // Tambahkan ini
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
-import LinearGradient from 'react-native-linear-gradient';
-import VerifikasiDokumenScreen from '../manager/VerifikasiDokumen';
+import { registrationService } from '../../services/apiService'; // 📌 Import Service
 
 type VerifikasiDokumenNavigationProp = NativeStackNavigationProp<
   PendaftarStackParamList,
   'VerifikasiDokumenScreen'
 >;
 
-// 📌 Konstanta Warna (Sesuai tema hijau gelap)
+// 📌 Konstanta Warna
 const COLORS = {
   PRIMARY_DARK: '#015023', 
   ACCENT_LIGHT: '#DABC4E', 
@@ -35,8 +36,31 @@ const COLORS = {
 const VerifikasiDokumen = () => {
   const navigation = useNavigation<VerifikasiDokumenNavigationProp>();
   
-  // 📌 Data Dummy: Ganti dengan data asli dari API
-  const nomorPeserta = '140072569877'; 
+  // 📌 STATE: Menggantikan variabel dummy
+  const [nomorPeserta, setNomorPeserta] = useState<string>('-');
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // 📌 EFFECT: Ambil data saat halaman dibuka
+  useEffect(() => {
+    fetchRegistrationNumber();
+  }, []);
+
+  const fetchRegistrationNumber = async () => {
+    try {
+      const profile = await registrationService.getProfile();
+      // Set nomor peserta dari response API
+      if (profile && profile.registration_number) {
+        setNomorPeserta(profile.registration_number);
+      } else {
+        setNomorPeserta('Belum Terbit');
+      }
+    } catch (error) {
+      console.error('Gagal mengambil nomor peserta:', error);
+      Alert.alert('Error', 'Gagal memuat nomor peserta. Periksa koneksi internet.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={localStyles.container} edges={['top']}>
@@ -60,7 +84,6 @@ const VerifikasiDokumen = () => {
                 />
               </TouchableOpacity>
               <View>
-                {/* 📌 Judul Header */}
                 <Text style={localStyles.headerTitle}>Verifikasi Dokumen</Text>
               </View>
             </View>
@@ -73,7 +96,7 @@ const VerifikasiDokumen = () => {
           <View style={localStyles.confirmationCard}>
             <View style={localStyles.checkCircle}>
               <Image
-                source={require('../../assets/icons/complete (1).png')} // Ikon centang
+                source={require('../../assets/icons/complete (1).png')} 
                 style={localStyles.checkIcon}
                 resizeMode="contain"
               />
@@ -95,9 +118,13 @@ const VerifikasiDokumen = () => {
             </Text>
           </View>
 
-          {/* Nomor Peserta Badge */}
+          {/* Nomor Peserta Badge (DYNAMIC) */}
           <View style={localStyles.pesertaBadge}>
-            <Text style={localStyles.pesertaNumber}>{nomorPeserta}</Text>
+            {loading ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={localStyles.pesertaNumber}>{nomorPeserta}</Text>
+            )}
           </View>
 
           {/* Tombol Aksi */}
@@ -176,7 +203,7 @@ const localStyles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: COLORS.PRIMARY_DARK, // Teks gelap di header emas
+    color: COLORS.PRIMARY_DARK, 
     left: 40,
   },
   content: {
@@ -187,7 +214,7 @@ const localStyles = StyleSheet.create({
 
   // Confirmation Card
   confirmationCard: {
-    backgroundColor: COLORS.ACCENT_BG, // Krem
+    backgroundColor: COLORS.ACCENT_BG,
     borderRadius: 20,
     padding: 30,
     width: '100%',
@@ -205,14 +232,14 @@ const localStyles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: COLORS.ACCENT_LIGHT, // Emas
+    backgroundColor: COLORS.ACCENT_LIGHT,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 15,
   },
   checkIcon: {
     width: 130,
-    height: 130, // Hijau Tua
+    height: 130,
   },
   confirmationText: {
     fontSize: 14,
@@ -280,33 +307,6 @@ const localStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#000',
-  },
-  
-  // Bottom Nav Styles (Meniru tampilan)
-  bottomNavContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    backgroundColor: COLORS.ACCENT_BG,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    elevation: 10,
-  },
-  navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 8,
-  },
-  navIcon: {
-    width: 28,
-    height: 28,
-    tintColor: COLORS.PRIMARY_DARK,
   },
 });
 

@@ -13,10 +13,16 @@ export interface Notification {
   updated_at: string;
 }
 
+// 泊 UPDATE: Tambahkan semua kemungkinan key yang diterima backend
 export interface SendNotificationData {
   title: string;
   message: string;
   type?: 'info' | 'warning' | 'important' | 'success';
+  
+  // Opsi filter (Salah satu dari ini harusnya ditangkap backend)
+  status?: string; 
+  registration_status?: string;
+  target_audience?: string;
 }
 
 export const notificationService = {

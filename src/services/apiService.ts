@@ -30,6 +30,24 @@ interface PaginatedResponse<T> {
   total: number;
 }
 
+export interface AnnouncementResult {
+  no: number;
+  registration_number: string;
+  name: string;
+  program: {
+    id: number;
+    name: string;
+    code: string;
+  };
+}
+
+export interface PaginationMeta {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
 // 🔑 Interface untuk User Management (Admin)
 export interface UserManagement {
   id_user: number;
@@ -90,6 +108,11 @@ export interface Profile {
   previous_school?: string;
   graduation_status?: string;
   last_ijazah?: string;
+  program?: {
+    id_program: number;
+    name: string;
+    name_program?: string;
+  };
 }
 
 export interface Document {
@@ -220,6 +243,8 @@ export const adminService = {
 // 🎓 REGISTRATION SERVICE
 // ============================================
 export const registrationService = {
+  
+
   getDocumentTypes: async (): Promise<DocumentType[]> => {
     const response = await api.get<ApiResponse<DocumentType[]>>('/registration/document-types');
     return response.data.data; 
@@ -251,8 +276,16 @@ export const registrationService = {
     await api.delete(`/registration/documents/${id_document}`);
   },
 
-  addAchievement: async (data: Partial<Achievement>): Promise<Achievement> => {
-    const response = await api.post<ApiResponse<Achievement>>('/registration/achievements', data);
+  addAchievement: async (data: FormData): Promise<Achievement> => {
+    const response = await api.post<ApiResponse<Achievement>>(
+      '/registration/achievements', 
+      data, 
+      {
+        headers: {
+            'Content-Type': 'multipart/form-data', // Wajib untuk upload file
+        }
+      }
+    );
     return response.data.data; 
   },
 
@@ -316,6 +349,30 @@ export const publicService = {
       const response = await api.get<ApiResponse<Region[]>>(`/public/cities/${provinceId}`);
       return response.data.data;
   },
+
+  /**
+   * Mengambil daftar pendaftar yang lulus (Public)
+   * GET /api/announcements
+   */
+  getAnnouncementResults: async (params?: { 
+    search?: string; 
+    program?: number; 
+    page?: number 
+  }): Promise<{ data: AnnouncementResult[], meta: PaginationMeta }> => {
+    // Sesuaikan URL endpoint dengan route Laravel Anda
+    const response = await api.get('/announcements', { params });
+    
+    // Mapping response sesuai struktur dari AnnouncementController
+    return {
+        data: response.data.data.data, // Array hasil
+        meta: {
+            current_page: response.data.data.current_page,
+            last_page: response.data.data.last_page,
+            per_page: response.data.data.per_page,
+            total: response.data.data.total
+        }
+    };
+  },
 };
 
 // ============================================
@@ -368,6 +425,9 @@ export const paymentService = {
   /**
    * GET /api/payments/my
    */
+
+  
+
   getMyPayment: async (): Promise<MyPaymentResponse | null> => {
     try {
       const response = await api.get('/payments/my');
@@ -434,3 +494,4 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+

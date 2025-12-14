@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
-import api from '../../services/api';
+import { notificationService, SendNotificationData } from '../../services/notificationService'; 
 import { ManagerStyles } from '../../styles/ManagerStyles'; 
 import { AdminStyles } from '../../styles/AdminStyles'; 
 import { ManagerStackParamList } from '../../navigation/ManagerNavigator'; 
@@ -33,6 +33,15 @@ const TARGET_AUDIENCE_OPTIONS = [
   'Approved Applicants',
   'Rejected Applicants',
 ];
+
+// 泊 MAPPING: Label UI -> Value Database
+// PENTING: Gunakan undefined untuk 'All' agar key filter tidak terkirim
+const AUDIENCE_MAP: Record<string, string | undefined> = {
+  'All Applicants': undefined, // Jangan kirim filter apa-apa
+  'Pending Applicants': 'submitted', // Sesuai kolom registration_status di DB
+  'Approved Applicants': 'approved',
+  'Rejected Applicants': 'rejected',
+};
 
 const NOTIFICATION_TYPES = [
   { label: 'Info', value: 'info' },
@@ -81,7 +90,6 @@ const DropdownModal: React.FC<DropdownModalProps> = ({
                 selectedValue === option && localStyles.modalOptionSelected
               ]}
               onPress={() => {
-                console.log('Selected option:', option);
                 onSelect(option);
                 onClose();
               }}
@@ -102,26 +110,19 @@ const DropdownModal: React.FC<DropdownModalProps> = ({
 
 const ManageNotification: React.FC = () => {
   const navigation = useNavigation<ManageNotificationNavigationProp>();
+  
   const [targetAudience, setTargetAudience] = useState('All Applicants');
-  const [notificationType, setNotificationType] = useState('info');
+  const [notificationType, setNotificationType] = useState('info'); 
   const [messageTitle, setMessageTitle] = useState('');
   const [messageContent, setMessageContent] = useState('');
+  
   const [showTargetAudienceModal, setShowTargetAudienceModal] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    console.log('showTargetAudienceModal:', showTargetAudienceModal);
-    console.log('showTypeModal:', showTypeModal);
-  }, [showTargetAudienceModal, showTypeModal]);
-
   const handleSendNotification = async () => {
-    console.log('🔘 Send button pressed!');
-    console.log('Title:', messageTitle);
-    console.log('Content:', messageContent);
-    
-    // Validasi input
+    // 1. Validasi Input
     if (!messageTitle.trim()) {
       Alert.alert('Error', 'Please enter a message title');
       return;
@@ -135,24 +136,38 @@ const ManageNotification: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // 2. 泊 AMBIL VALUE FILTER
+      const filterValue = AUDIENCE_MAP[targetAudience];
+
       console.log('🔄 Sending notification...');
+      console.log('📍 Target UI:', targetAudience);
+      console.log('📍 Filter Value:', filterValue); 
       
-      const payload = {
+      // 3. 泊 KONSTRUKSI PAYLOAD (Kirim Multiple Keys untuk memastikan backend menangkapnya)
+      // Kita kirim 'registration_status' karena itu nama kolom di tabel profile
+      // Kita juga kirim 'status' sebagai backup
+      const payload: SendNotificationData = {
         title: messageTitle.trim(),
         message: messageContent.trim(),
-        type: notificationType,
+        type: notificationType as any,
+        
+        // Jika filterValue undefined (All), properti ini tidak akan mengganggu
+        ...(filterValue && { 
+            registration_status: filterValue,
+            status: filterValue,
+            target_audience: filterValue 
+        }),
       };
 
-      console.log('📦 Payload:', payload);
+      console.log('📦 Final Payload:', JSON.stringify(payload));
 
-      const response = await api.post('/notifications/send', payload);
+      // 4. Kirim via Service
+      const response = await notificationService.sendNotification(payload);
 
-      console.log('✅ Response:', response.data);
-
-      if (response.data && response.data.success) {
+      if (response.success) {
         Alert.alert(
           'Success',
-          `Notification sent successfully to ${response.data.data?.notifications_sent || 'all'} applicants!`,
+          `Notification sent successfully!`,
           [
             {
               text: 'OK',
@@ -166,30 +181,14 @@ const ManageNotification: React.FC = () => {
           ]
         );
       } else {
-        Alert.alert('Error', response.data?.message || 'Failed to send notification');
+        Alert.alert('Error', response.message || 'Failed to send notification');
       }
     } catch (error: any) {
       console.error('❌ Error sending notification:', error);
       
-      let errorMessage = 'Failed to send notification. Please try again.';
-      
-      if (error.response) {
-        console.error('Server Error:', error.response.data);
-        
-        if (error.response.status === 403) {
-          errorMessage = 'Unauthorized. Only admin and manager can send notifications.';
-        } else if (error.response.status === 422) {
-          errorMessage = 'Validation error: ' + (error.response.data.message || 'Invalid data');
-        } else {
-          errorMessage = error.response.data.message || errorMessage;
-        }
-        
-      } else if (error.request) {
-        console.error('Network Error:', error.request);
-        errorMessage = 'Cannot connect to server. Please check your connection.';
-      } else {
-        console.error('Error:', error.message);
-        errorMessage = error.message;
+      let errorMessage = 'Failed to send notification.';
+      if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
       }
       
       Alert.alert('Error', errorMessage);
@@ -204,25 +203,21 @@ const ManageNotification: React.FC = () => {
   };
 
   const handleTargetAudiencePress = () => {
-    console.log('📍 Target Audience pressed');
     setOpenDropdown('targetAudience');
     setShowTargetAudienceModal(true);
   };
 
   const handleTypePress = () => {
-    console.log('📍 Type pressed');
     setOpenDropdown('notificationType');
     setShowTypeModal(true);
   };
 
   const handleCloseTargetAudienceModal = () => {
-    console.log('❌ Closing Target Audience Modal');
     setShowTargetAudienceModal(false);
     setOpenDropdown(null);
   };
 
   const handleCloseTypeModal = () => {
-    console.log('❌ Closing Type Modal');
     setShowTypeModal(false);
     setOpenDropdown(null);
   };
@@ -383,7 +378,6 @@ const ManageNotification: React.FC = () => {
         onClose={handleCloseTargetAudienceModal}
         options={TARGET_AUDIENCE_OPTIONS}
         onSelect={(value) => {
-          console.log('Target audience selected:', value);
           setTargetAudience(value);
         }}
         selectedValue={targetAudience}
@@ -395,10 +389,8 @@ const ManageNotification: React.FC = () => {
         onClose={handleCloseTypeModal}
         options={NOTIFICATION_TYPES.map(type => type.label)}
         onSelect={(label) => {
-          console.log('Type label selected:', label);
           const type = NOTIFICATION_TYPES.find(t => t.label === label);
           if (type) {
-            console.log('Type value:', type.value);
             setNotificationType(type.value);
           }
         }}

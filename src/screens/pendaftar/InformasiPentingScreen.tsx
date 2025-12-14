@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ImageBackground,
   ScrollView,
   Image,
+  Alert, // ✅ Import Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -15,10 +16,47 @@ import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
 
+// ✅ Import Service
+import { registrationService } from '../../services/apiService';
+
 type InformasiPentingNavigationProp = NativeStackNavigationProp<PendaftarStackParamList, 'InformasiPenting'>;
 
 const InformasiPentingScreen = () => {
   const navigation = useNavigation<InformasiPentingNavigationProp>();
+
+  // 🛡️ State Status Pendaftaran
+  const [currentStatus, setCurrentStatus] = useState<string | null>(null);
+
+  // 泊 EFFECT: Cek Status saat layar dibuka
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const profile = await registrationService.getProfile();
+        // Jika ada profile, simpan statusnya. Jika null, anggap 'draft'
+        setCurrentStatus(profile?.registration_status || 'draft');
+      } catch (e) {
+        // Jika error (misal 404), anggap belum daftar (draft)
+        setCurrentStatus('draft');
+      }
+    };
+    checkStatus();
+  }, []);
+
+  // 🛡️ LOGIKA TOMBOL DAFTAR
+  const handleRegisterClick = () => {
+    // Jika status sudah ada dan BUKAN draft, blokir akses
+    if (currentStatus && currentStatus !== 'draft') {
+       Alert.alert(
+            "Sudah Terdaftar",
+            "Data pendaftaran Anda sudah kami terima. Anda tidak dapat mengisi formulir lagi. Silakan pantau status pendaftaran Anda di dashboard.",
+            [{ text: "OK" }]
+        );
+        return;
+    }
+    
+    // Jika aman (draft/belum daftar), lanjut ke form
+    navigation.navigate('PendaftaranMahasiswa');
+  };
 
   return (
     <SafeAreaView style={PendaftarStyles.container} edges={['top']}>
@@ -91,15 +129,28 @@ const InformasiPentingScreen = () => {
             </Text>
           </View>
           
-          <TouchableOpacity style={styles.daftarButton}
-          onPress={() => navigation.navigate('PendaftaranMahasiswa')}>
+          {/* ========================================================== */}
+          {/* 🛡️ UPDATE: TOMBOL DAFTAR DENGAN LOGIC DISABLE & WARNA */}
+          {/* ========================================================== */}
+          <TouchableOpacity 
+            style={styles.daftarButton}
+            onPress={handleRegisterClick} // ✅ Gunakan handler baru
+          >
             <LinearGradient
-                colors={['#DABC4E', '#F5EFD3']}
+                colors={
+                    // Ubah warna jadi abu-abu jika sudah terdaftar
+                    (currentStatus && currentStatus !== 'draft')
+                    ? ['#A0A0A0', '#D3D3D3'] 
+                    : ['#DABC4E', '#F5EFD3']
+                }
                 start={{ x: 0, y: 0.5 }}
                 end={{ x: 1, y: 0.5 }}
                 style={styles.daftarButton}
               >
-                <Text style={styles.daftarButtonText}>Daftar</Text>
+                <Text style={styles.daftarButtonText}>
+                  {/* Ubah text jika sudah terdaftar */}
+                  {(currentStatus && currentStatus !== 'draft') ? "Sudah Terdaftar" : "Daftar"}
+                </Text>
               </LinearGradient>
           </TouchableOpacity>
         </View>

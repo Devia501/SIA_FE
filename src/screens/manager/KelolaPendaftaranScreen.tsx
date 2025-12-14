@@ -86,10 +86,11 @@ const RegistrationItem = ({
       break;
   }
 
+  // 🛠️ MODIFIKASI DISINI: Menambahkan logika verifikasi pembayaran otomatis
   const handleApprove = async () => {
     Alert.alert(
       'Konfirmasi Approve',
-      `Apakah Anda yakin ingin menyetujui pendaftar ${data.full_name}?`,
+      `Apakah Anda yakin ingin menyetujui pendaftar ${data.full_name}?\n\n(Tindakan ini akan otomatis memverifikasi pembayaran pendaftar)`,
       [
         { text: 'Batal', style: 'cancel' },
         {
@@ -97,13 +98,26 @@ const RegistrationItem = ({
           onPress: async () => {
             setLoading(true);
             try {
+              // 1. Ambil detail pembayaran pendaftar terlebih dahulu untuk mendapatkan payment ID
+              const paymentResponse = await managerService.getApplicantPayment(data.id_profile);
+
+              // 2. Jika ada data pembayaran, lakukan verifikasi pembayaran
+              if (paymentResponse.success && paymentResponse.data) {
+                 await managerService.verifyPayment(paymentResponse.data.id, {
+                    status: 'verified',
+                 });
+              }
+
+              // 3. Update status pendaftar menjadi Approved
               await managerService.updateApplicantStatus(data.id_profile, {
                 status: 'approved',
-                notes: 'Disetujui oleh manager (Quick Approve)',
+                notes: 'Disetujui oleh manager (Quick Approve & Auto Payment Verification)',
               });
-              Alert.alert('Berhasil', 'Pendaftar berhasil disetujui');
+
+              Alert.alert('Berhasil', 'Pendaftar disetujui dan pembayaran telah diverifikasi.');
               onStatusUpdate();
             } catch (error: any) {
+              console.error("Approval Error:", error);
               Alert.alert('Gagal', error.message || 'Gagal menyetujui pendaftar');
             } finally {
               setLoading(false);
@@ -144,6 +158,17 @@ const RegistrationItem = ({
   };
   
   const handleViewDetail = () => {
+    // 🆕 MODIFIKASI: Cek status sebelum navigasi
+    // Jika status BUKAN 'submitted' (artinya sudah approved/rejected), hentikan navigasi.
+    if (data.registration_status !== 'submitted') {
+      Alert.alert(
+        'Info',
+        'Status pendaftar sudah ditentukan. Verifikasi dokumen tidak dapat dilakukan lagi.'
+      );
+      return; 
+    }
+
+    // Jika status masih pending (submitted), lanjut ke navigasi
     navigation.navigate('VerifikasiDokumen', {
       id_profile: data.id_profile,
       name: data.full_name,

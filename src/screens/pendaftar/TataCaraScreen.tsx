@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Alert, // ✅ Tambahkan Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,61 +17,112 @@ import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
 
+// ✅ Import Service untuk Logika Navigasi Status & Cek Status Tombol
+import { registrationService, Profile, Document } from '../../services/apiService'; 
+
 type TataCaraNavigationProp = NativeStackNavigationProp<PendaftarStackParamList, 'TataCara'>;
-
-// 🔑 LOGIKA STATUS DARI DASHBOARD (SIMULASI API)
-interface Profile {
-  registration_status?: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
-}
-type RegistrationStatus = Profile['registration_status'];
-
-const registrationService = {
-  // Mock function: Ganti dengan implementasi API yang sebenarnya dari file apiService Anda
-  getProfile: async (): Promise<Profile> => {
-    // Simulasi status belum mendaftar (kosongan)
-    throw new Error('404'); // <--- GANTI INI: Simulasi status 'kosongan'
-    // return { registration_status: 'submitted' }; 
-  }
-};
-// END LOGIKA STATUS MOCK
 
 const TataCaraScreen = () => {
   const navigation = useNavigation<TataCaraNavigationProp>();
   
-  // 🔑 STATUS STATE BARU
+  // 🔑 State Loading untuk Tombol Status (Bottom Nav)
   const [isStatusLoading, setIsStatusLoading] = useState(false);
 
-  // 泊 FUNGSI NAVIGASI STATUS DINAMIS
-  const handleStatusNavigation = useCallback(async () => {
-    setIsStatusLoading(true);
-    try {
-        const profile = await registrationService.getProfile();
-        const status = profile.registration_status;
-  
-    if (!status) { 
-        navigation.navigate('StatusPendaftaranAwal' as any);
-    } else if (status === 'submitted') {
-        navigation.navigate('TungguKonfirmasi' as any);
-    } else {
-        navigation.navigate('StatusPendaftaranDone' as any);
-    }
-    } catch (e: any) { // Pastikan tipe e adalah any
-        
-        // ✅ PERUBAHAN INTI: Cek jika pesan error mengandung '404'
-        const isExpectedError = (e.message && e.message.includes('404')) || 
-                                (e.message && e.message.includes('Profil tidak ditemukan'));
+  // 🛡️ State Status Pendaftaran untuk Tombol Daftar Utama
+  const [currentStatus, setCurrentStatus] = useState<string | null>(null);
 
-        if (!isExpectedError) {
-            // Cetak error ke konsol hanya jika ini BUKAN error 404/Profil tidak ditemukan yang disimulasikan
-            console.error("Gagal cek status pendaftaran:", e);
+  // 泊 EFFECT: Cek Status Pendaftaran saat layar dimuat
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const profile = await registrationService.getProfile();
+        if (profile) {
+          setCurrentStatus(profile.registration_status || 'draft');
+        }
+      } catch (e) {
+        // Jika error (misal 404 karena belum ada profil), anggap masih draft
+        console.log("Status Check Error (TataCara):", e);
+        setCurrentStatus('draft');
+      }
+    };
+    checkStatus();
+  }, []);
+
+  // 🛡️ LOGIKA TOMBOL DAFTAR (Pencegahan Submit Ulang)
+  const handleProceedToInfo = () => {
+    // Jika status sudah ada dan BUKAN draft, blokir akses
+    if (currentStatus && currentStatus !== 'draft') {
+        Alert.alert(
+            "Akses Dibatasi",
+            "Anda sudah menyelesaikan proses pendaftaran. Tidak perlu mendaftar ulang. Silakan cek menu Status Pendaftaran.",
+            [{ text: "OK" }]
+        );
+        return;
+    }
+    // Jika aman, lanjut ke Informasi Penting
+    // @ts-ignore
+    navigation.navigate('InformasiPenting');
+  };
+
+  // 泊 FUNGSI NAVIGASI STATUS DINAMIS (Bottom Nav)
+  const handleStatusNavigation = useCallback(async () => {
+    if (isStatusLoading) return;
+    setIsStatusLoading(true);
+    
+    try {
+        // 1. Ambil Profile
+        const profile: Profile = await registrationService.getProfile();
+        const status = profile.registration_status;
+        let hasDocumentFeedback = false;
+
+        // 2. Jika status 'submitted', cek feedback dokumen
+        if (status === 'submitted') {
+             try {
+                 const docs: Document[] = await registrationService.getDocuments();
+                 hasDocumentFeedback = docs.some(d => 
+                     d.verification_status === 'approved' || d.verification_status === 'rejected'
+                 );
+             } catch (docError) {
+                 console.log("Gagal cek dokumen:", docError);
+             }
+        }
+  
+        // 3. Logika Navigasi
+        if (!status || status === 'draft') { 
+            // @ts-ignore
+            navigation.navigate('StatusPendaftaranAwal');
+        } else if (status === 'submitted') {
+            if (hasDocumentFeedback) {
+                // @ts-ignore
+                navigation.navigate('StatusPendaftaranProses');
+            } else {
+                // @ts-ignore
+                navigation.navigate('TungguKonfirmasi');
+            }
+        } else if (status === 'reviewed') {
+            // @ts-ignore
+            navigation.navigate('StatusPendaftaranProses');
+        } else {
+            // Approved / Rejected
+            // @ts-ignore
+            navigation.navigate('StatusPendaftaranDone');
         }
 
-        // Navigasi ke StatusPendaftaranAwal (ini yang menangani status 'kosongan')
-        navigation.navigate('StatusPendaftaranAwal' as any);
+    } catch (e: any) { 
+        // Handle 404 (Belum ada profile) -> Anggap Draft/Awal
+        const isExpectedError = (e.message && e.message.includes('404')) || 
+                                (e.message && e.message.includes('Profil tidak ditemukan')) ||
+                                (e.response && e.response.status === 404);
+
+        if (!isExpectedError) {
+            console.error("Gagal cek status pendaftaran:", e);
+        }
+        // @ts-ignore
+        navigation.navigate('StatusPendaftaranAwal');
     } finally {
         setIsStatusLoading(false);
     }
-  }, [navigation]);
+  }, [navigation, isStatusLoading]);
 
   return (
     <SafeAreaView style={PendaftarStyles.container} edges={['top']}>
@@ -236,15 +288,28 @@ const TataCaraScreen = () => {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.daftarButton}
-          onPress={() => navigation.navigate('InformasiPenting' as any)}>
+          {/* ========================================================== */}
+          {/* 🛡️ UPDATE: TOMBOL DAFTAR DENGAN LOGIC DISABLE & WARNA */}
+          {/* ========================================================== */}
+          <TouchableOpacity 
+            style={styles.daftarButton}
+            onPress={handleProceedToInfo} // ✅ Gunakan handler baru
+          >
             <LinearGradient
-                colors={['#DABC4E', '#F5EFD3']}
+                colors={
+                    // Warna abu-abu jika sudah bukan draft (sudah submit)
+                    (currentStatus && currentStatus !== 'draft')
+                    ? ['#A0A0A0', '#D3D3D3'] 
+                    : ['#DABC4E', '#F5EFD3']
+                }
                 start={{ x: 0, y: 0.5 }}
                 end={{ x: 1, y: 0.5 }}
                 style={styles.daftarButton}
               >
-                <Text style={styles.daftarButtonText}>Daftar</Text>
+                <Text style={styles.daftarButtonText}>
+                  {/* Text berubah sesuai status */}
+                  {(currentStatus && currentStatus !== 'draft') ? "Sudah Terdaftar" : "Daftar"}
+                </Text>
               </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -271,6 +336,7 @@ const TataCaraScreen = () => {
             </View>
           </TouchableOpacity>
 
+          {/* 泊 TOMBOL STATUS DENGAN LOGIC DINAMIS */}
           <TouchableOpacity 
             style={PendaftarStyles.navItem}
             onPress={handleStatusNavigation} 
@@ -421,7 +487,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
     marginBottom: 50, 
     alignSelf: 'center',
-    width: '60%',
+    width: '70%',
   },
   daftarButtonText: {
     fontSize: 16,

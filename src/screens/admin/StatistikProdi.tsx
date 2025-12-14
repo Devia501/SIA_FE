@@ -1,6 +1,6 @@
 // src/screens/admin/StatistikProdiScreen.tsx
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,296 +9,286 @@ import {
   Image,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import LinearGradient from 'react-native-linear-gradient';
+import { PieChart } from 'react-native-gifted-charts'; 
+
+// Imports Lokal
 import { AdminStackParamList } from '../../navigation/AdminNavigator';
 import { AdminStyles } from '../../styles/AdminStyles';
-import LinearGradient from 'react-native-linear-gradient';
+import { managerService, Applicant } from '../../services/managerService';
 
 const { width } = Dimensions.get('window');
 
 type StatistikProdiNavigationProp = NativeStackNavigationProp<AdminStackParamList, 'StatistikProdi'>;
 
-// Data Dummy untuk Distribusi Program Studi
-const PROGRAM_STUDI_DATA = [
-  { 
-    id: 1, 
-    name: 'Teknik Informatika', 
-    value: 802, 
-    percent: 65, 
-    color: '#DABC4E' 
-  },
-  { 
-    id: 2, 
-    name: 'Sistem Informasi', 
-    value: 283, 
-    percent: 23, 
-    color: '#4A90E2' 
-  },
-  { 
-    id: 3, 
-    name: 'Teknik Elektro', 
-    value: 185, 
-    percent: 15, 
-    color: '#38A169' 
-  },
-];
+// 🎨 Palet Warna untuk Prodi (Agar konsisten)
+const COLORS_PALETTE = ['#DABC4E', '#189653', '#4A90E2', '#E74C3C', '#9B59B6', '#34495E'];
 
-const TOTAL_PENDAFTAR = 1234;
-
-// Data untuk Top Program Studi (ranking)
-const TOP_PROGRAM_STUDI = [
-  { 
-    rank: 1, 
-    name: 'Teknik Informatika', 
-    count: 432, 
-    color: '#DABC4E',
-    gradientColors: ['#DABC4E', '#EFE3B0']
-  },
-  { 
-    rank: 2, 
-    name: 'Sistem Informasi', 
-    count: 283, 
-    color: '#DABC4E',
-    gradientColors: ['#DABC4E', '#EFE3B0']
-  },
-  { 
-    rank: 3, 
-    name: 'Teknik Elektro', 
-    count: 185, 
-    color: '#DABC4E',
-    gradientColors: ['#DABC4E', '#EFE3B0']
-  },
-];
-
-// Komponen untuk Item Legend
-const ProgramStudiLegendItem: React.FC<{
+// Interface untuk Data Statistik
+interface ProdiStat {
+  id: number;
   name: string;
   value: number;
   percent: number;
   color: string;
-}> = ({ name, value, percent, color }) => (
-  <View style={localStyles.legendItem}>
-    <View style={[localStyles.legendIndicator, { backgroundColor: color }]} />
-    <Text style={localStyles.legendText}>{name}</Text>
-    <Text style={localStyles.legendValue}>{value} ({percent}%)</Text>
-  </View>
-);
-
-// Komponen untuk Top Program Studi Item
-const TopProgramItem: React.FC<{
-  rank: number;
-  name: string;
-  count: number;
-  color: string;
   gradientColors: string[];
-}> = ({ rank, name, count, color, gradientColors }) => (
-  <LinearGradient
-    colors={gradientColors}
-    start={{ x: 0, y: 0.5 }}
-    end={{ x: 1, y: 1 }}
-    style={localStyles.topProgramItem}
-  >
-    <View style={localStyles.rankCircle}>
-      <Text style={localStyles.rankText}>{rank}</Text>
-    </View>
-    <View style={localStyles.topProgramInfo}>
-      <Text style={localStyles.topProgramName}>{name}</Text>
-      <Text style={localStyles.topProgramCount}>{count} Pendaftar</Text>
-    </View>
-    <View style={localStyles.progressBarContainer}>
-      <View 
-        style={[
-          localStyles.progressBar, 
-          { width: `${(count / 432) * 100}%` }
-        ]} 
-      />
-    </View>
-  </LinearGradient>
-);
+}
 
 const StatistikProdi = () => {
   const navigation = useNavigation<StatistikProdiNavigationProp>();
 
-  const handleBack = () => {
-    navigation.goBack();
+  // --- STATE ---
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [totalPendaftar, setTotalPendaftar] = useState(0);
+  const [chartData, setChartData] = useState<any[]>([]); // Data untuk Pie Chart
+  const [prodiStats, setProdiStats] = useState<ProdiStat[]>([]); // Data untuk List & Legend
+
+  // --- FETCH DATA ---
+  const fetchData = async () => {
+    try {
+      // 1. Ambil semua data pendaftar dari API
+      const response = await managerService.getApplicants({ status: 'all' });
+      
+      if (response.success) {
+        processData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  const handleLihatDetail = () => {
-    console.log('Navigasi ke Detail Data Pendaftar');
-    navigation.navigate('DataPendaftar');
+  // --- PROCESS DATA ---
+  const processData = (applicants: Applicant[]) => {
+    const total = applicants.length;
+    setTotalPendaftar(total);
+
+    // Grouping by program_name
+    const counts: Record<string, number> = {};
+    applicants.forEach((app) => {
+      const progName = app.program_name || 'Lainnya';
+      counts[progName] = (counts[progName] || 0) + 1;
+    });
+
+    // Convert to Array & Sort (Highest first)
+    const statsArray: ProdiStat[] = Object.keys(counts)
+      .map((key, index) => {
+        const count = counts[key];
+        const percent = total > 0 ? parseFloat(((count / total) * 100).toFixed(1)) : 0;
+        const color = COLORS_PALETTE[index % COLORS_PALETTE.length];
+        
+        return {
+          id: index,
+          name: key,
+          value: count,
+          percent: percent,
+          color: color,
+          gradientColors: [color, adjustColor(color, 40)], // Helper untuk gradient
+        };
+      })
+      .sort((a, b) => b.value - a.value); // Urutkan dari terbanyak
+
+    setProdiStats(statsArray);
+
+    // Format Data untuk React Native Gifted Charts
+    const chartFormatted = statsArray.map(item => ({
+      value: item.value,
+      color: item.color,
+      text: `${Math.round(item.percent)}%`, // Tampilkan label persen di chart
+      textColor: '#FFFFFF',
+      textSize: 10,
+    }));
+    setChartData(chartFormatted);
   };
+
+  // Helper simpel untuk membuat warna gradient lebih terang
+  const adjustColor = (color: string, amount: number) => {
+    return color; // Bisa dikembangkan logic hex manipulator jika perlu
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
+
+  const handleBack = () => navigation.goBack();
+  const handleLihatDetail = () => navigation.navigate('DataPendaftar');
+
+  // --- RENDER COMPONENTS ---
+
+  const renderLegend = () => (
+    <View style={localStyles.legendContainer}>
+      {prodiStats.map((item) => (
+        <View key={item.id} style={localStyles.legendItem}>
+          <View style={[localStyles.legendIndicator, { backgroundColor: item.color }]} />
+          <Text style={localStyles.legendText} numberOfLines={1}>{item.name}</Text>
+          <Text style={localStyles.legendValue}>
+            {item.value} ({item.percent}%)
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+
+  const renderTopPrograms = () => (
+    <View style={localStyles.topProgramList}>
+      {prodiStats.map((item, index) => (
+        <LinearGradient
+          key={item.id}
+          colors={[item.color, '#F5F5F5']} // Gradient halus dari warna prodi ke putih/abu
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={localStyles.topProgramItem}
+        >
+          <View style={[localStyles.rankCircle, { backgroundColor: 'rgba(255,255,255,0.6)' }]}>
+            <Text style={localStyles.rankText}>{index + 1}</Text>
+          </View>
+          <View style={localStyles.topProgramInfo}>
+            <Text style={localStyles.topProgramName}>{item.name}</Text>
+            <Text style={localStyles.topProgramCount}>{item.value} Pendaftar</Text>
+          </View>
+          
+          {/* Progress Bar Visual */}
+          <View style={localStyles.progressBarContainer}>
+            <View 
+              style={[
+                localStyles.progressBar, 
+                { 
+                  width: `${prodiStats.length > 0 ? (item.value / prodiStats[0].value) * 100 : 0}%`,
+                  backgroundColor: item.color
+                }
+              ]} 
+            />
+          </View>
+        </LinearGradient>
+      ))}
+    </View>
+  );
 
   return (
     <SafeAreaView style={localStyles.container} edges={['top', 'bottom']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={localStyles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DABC4E']} />
+        }
       >
         {/* Header */}
         <View style={localStyles.headerContainer}>
-          <View style={localStyles.headerBackground}>
             <LinearGradient
-            colors={['#DABC4E', '#EFE3B0']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={localStyles.headerBackground}
-          >
-            <View style={localStyles.headerContent}>
-              {/* Tombol Back */}
-              <TouchableOpacity
-                style={localStyles.headerIconContainerLeft}
-                onPress={handleBack}
-              >
+              colors={['#DABC4E', '#EFE3B0']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={localStyles.headerBackground}
+            >
+              <View style={localStyles.headerContent}>
+                <TouchableOpacity style={localStyles.headerIconContainerLeft} onPress={handleBack}>
+                  <Image
+                    source={require('../../assets/icons/material-symbols_arrow-back-rounded.png')}
+                    style={localStyles.headerIcon}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+                <View style={localStyles.headerTitleContainer}>
+                  <Text style={localStyles.headerTitle}>Statistik Per Prodi</Text>
+                </View>
+              </View>
+            </LinearGradient>
+        </View>
+
+        {/* Content */}
+        {loading ? (
+          <ActivityIndicator size="large" color="#DABC4E" style={{ marginTop: 50 }} />
+        ) : (
+          <>
+            {/* 📊 Distribusi Program Studi Card */}
+            <View style={localStyles.chartCard}>
+              <View style={localStyles.chartCardHeader}>
+                <Text style={localStyles.chartCardTitle}>Distribusi Program Studi</Text>
                 <Image
-                  source={require('../../assets/icons/material-symbols_arrow-back-rounded.png')}
-                  style={localStyles.headerIcon}
+                  source={require('../../assets/icons/solar_chart-bold-duotone.png')}
+                  style={localStyles.chartIcon}
                   resizeMode="contain"
                 />
-              </TouchableOpacity>
-              <View style={localStyles.headerTitleContainer}>
-                <Text style={localStyles.headerTitle}>Statistik Per Prodi</Text>
-              </View>
-            </View>
-            </LinearGradient>
-          </View>
-        </View>
-
-        {/* Distribusi Program Studi Card */}
-        <View style={localStyles.chartCard}>
-          <View style={localStyles.chartCardHeader}>
-            <Text style={localStyles.chartCardTitle}>Distribusi Program Studi</Text>
-            <Image
-              source={require('../../assets/icons/solar_chart-bold-duotone.png')}
-              style={localStyles.chartIcon}
-              resizeMode="contain"
-            />
-          </View>
-
-          {/* Donut Chart Container */}
-          <View style={localStyles.donutChartContainer}>
-            {/* Donut Chart Wrapper */}
-            <View style={localStyles.donutChartWrapper}>
-              {/* Base Circle dengan segmen warna */}
-              <View style={localStyles.donutBase}>
-                {/* Segmen Kuning/Emas (Teknik Informatika 65%) - Dominant */}
-                <View style={localStyles.segmentYellow} />
-                
-                {/* Segmen Biru (Sistem Informasi 23%) */}
-                <View style={localStyles.segmentBlue} />
-                
-                {/* Segmen Hijau (Teknik Elektro 15%) */}
-                <View style={localStyles.segmentGreen} />
               </View>
 
-              {/* Center Circle dengan total */}
-              <View style={localStyles.donutChartCenter}>
-                <Text style={localStyles.donutCenterValue}>{TOTAL_PENDAFTAR.toLocaleString()}</Text>
-              </View>
+              {/* Dynamic Donut Chart Container */}
+              <View style={localStyles.donutChartContainer}>
+                {chartData.length > 0 ? (
+                  <PieChart
+                    data={chartData}
+                    donut
+                    radius={110}
+                    innerRadius={70}
+                    innerCircleColor={'#FEFAE0'}
+                    centerLabelComponent={() => (
+                      <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+                         <Text style={{ fontSize: 24, fontWeight: '900', color: '#000' }}>
+                            {totalPendaftar}
+                         </Text>
+                         <Text style={{ fontSize: 12, color: '#666' }}>Total</Text>
+                      </View>
+                    )}
+                  />
+                ) : (
+                  <View style={{ height: 200, justifyContent: 'center', alignItems: 'center' }}>
+                     <Text style={{ color: '#999' }}>Belum ada data pendaftar</Text>
+                  </View>
+                )}
 
-              {/* Percentage Labels */}
-              <View style={[localStyles.percentLabel, { top: 30, left: 15 }]}>
-                <Text style={[localStyles.percentText, { color: '#38A169' }]}>15%</Text>
-              </View>
-              <View style={[localStyles.percentLabel, { top: 30, right: 15 }]}>
-                <Text style={[localStyles.percentText, { color: '#4A90E2' }]}>20%</Text>
-              </View>
-              <View style={[localStyles.percentLabel, { bottom: 35 }]}>
-                <Text style={[localStyles.percentText, { color: '#DABC4E' }]}>65%</Text>
+                {/* Legend List */}
+                {renderLegend()}
               </View>
             </View>
 
-            {/* Legend */}
-            <View style={localStyles.legendContainer}>
-              {PROGRAM_STUDI_DATA.map(item => (
-                <ProgramStudiLegendItem
-                  key={item.id}
-                  name={item.name}
-                  value={item.value}
-                  percent={item.percent}
-                  color={item.color}
+            {/* 🏆 Top Program Studi Card */}
+            <View style={localStyles.topProgramCard}>
+              <View style={localStyles.topProgramHeader}>
+                <Text style={localStyles.topProgramTitle}>Ranking Program Studi</Text>
+                <Image
+                  source={require('../../assets/icons/solar_cup-bold.png')}
+                  style={localStyles.trophyIcon}
+                  resizeMode="contain"
                 />
-              ))}
+              </View>
+
+              {chartData.length > 0 ? renderTopPrograms() : (
+                 <Text style={{ textAlign: 'center', color: '#999', marginVertical: 20 }}>Data Kosong</Text>
+              )}
             </View>
-          </View>
-        </View>
 
-        {/* Top Program Studi Card */}
-        <View style={localStyles.topProgramCard}>
-          <View style={localStyles.topProgramHeader}>
-            <Text style={localStyles.topProgramTitle}>Top Program Studi</Text>
-            <Image
-              source={require('../../assets/icons/solar_cup-bold.png')}
-              style={localStyles.trophyIcon}
-              resizeMode="contain"
-            />
-          </View>
+            {/* Action Button */}
+            <TouchableOpacity onPress={handleLihatDetail}>
+              <LinearGradient
+                colors={['#DABC4E', '#EFE3B0']}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 1 }}
+                style={localStyles.actionButton}
+              >
+                <Text style={localStyles.actionButtonText}>Lihat Detail Data Pendaftar</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
+        )}
 
-          <View style={localStyles.topProgramList}>
-            {TOP_PROGRAM_STUDI.map(item => (
-              <TopProgramItem
-                key={item.rank}
-                rank={item.rank}
-                name={item.name}
-                count={item.count}
-                color={item.color}
-                gradientColors={item.gradientColors}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* Action Button */}
-        <TouchableOpacity onPress={handleLihatDetail}>
-          <LinearGradient
-            colors={['#DABC4E', '#EFE3B0']}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 1 }}
-            style={localStyles.actionButton}
-          >
-            <Text style={localStyles.actionButtonText}>Lihat Detail Data Pendaftar</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        {/* Spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
-
-      {/* Bottom Navigation */}
-      <View style={AdminStyles.bottomNav}>
-        <TouchableOpacity
-          style={AdminStyles.navItem}
-          onPress={() => navigation.navigate('AdminDashboard')}
-        >
-          <Image
-            source={require('../../assets/icons/material-symbols_home-rounded.png')}
-            style={AdminStyles.navIcon}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={AdminStyles.navItemActive}>
-          <Image
-            source={require('../../assets/icons/proicons_save-pencil.png')}
-            style={AdminStyles.navIcon}
-            resizeMode="contain"
-          />
-          <Text style={AdminStyles.navTextActive}>Manage</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={AdminStyles.navItem}
-          onPress={() => navigation.navigate('AddManager')}
-        >
-          <Image
-            source={require('../../assets/icons/f7_person-3-fill.png')}
-            style={AdminStyles.navIcon}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
-      </View>
 
       {/* Background Logo */}
       <Image
@@ -310,6 +300,7 @@ const StatistikProdi = () => {
   );
 };
 
+// --- STYLES (Dipertahankan 95% mirip aslinya, disesuaikan untuk Chart Library) ---
 const localStyles = StyleSheet.create({
   container: {
     flex: 1,
@@ -327,8 +318,6 @@ const localStyles = StyleSheet.create({
     height: 70,
     justifyContent: 'center',
     backgroundColor: '#DABC4E',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
   },
   headerContent: {
     flexDirection: 'row',
@@ -357,6 +346,8 @@ const localStyles = StyleSheet.create({
     textAlign: 'center',
     marginRight: 28,
   },
+  
+  // Chart Card Styles
   chartCard: {
     backgroundColor: '#FEFAE0',
     borderRadius: 25,
@@ -389,89 +380,13 @@ const localStyles = StyleSheet.create({
   },
   donutChartContainer: {
     alignItems: 'center',
-  },
-  donutChartWrapper: {
-    width: 250,
-    height: 250,
-    position: 'relative',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
   },
-  donutBase: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: '#DABC4E',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  segmentYellow: {
-    position: 'absolute',
-    width: 250,
-    height: 250,
-    backgroundColor: '#DABC4E',
-    borderRadius: 125,
-    transform: [{ rotate: '180deg' }],
-    bottom: -70,
-    zIndex: 3,
-  },
-  segmentBlue: {
-    position: 'absolute',
-    width: 250,
-    height: 600,
-    backgroundColor: '#4A90E2',
-    borderRadius: 30,
-    top: -270,
-    right: 150,
-    transform: [{ rotate: '40deg' }],
-    zIndex: 2,
-  },
-  segmentGreen: {
-    position: 'absolute',
-    width: 250,
-    height: 600,
-    backgroundColor: '#38A169',
-    borderRadius: 30,
-    top: -270,
-    left: 150,
-    transform: [{ rotate: '-40deg' }],
-    zIndex: 1,
-  },
-  donutChartCenter: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: '#FEFAE0',
-    position: 'absolute',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  donutCenterValue: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#000000',
-  },
-  percentLabel: {
-    position: 'absolute',
-    zIndex: 11,
-    backgroundColor: 'white',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  percentText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+  
+  // Legend Styles
   legendContainer: {
     width: '100%',
+    marginTop: 20,
   },
   legendItem: {
     flexDirection: 'row',
@@ -498,6 +413,8 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000000',
   },
+
+  // Top Program Styles
   topProgramCard: {
     backgroundColor: '#FEFAE0',
     borderRadius: 25,
@@ -534,19 +451,23 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 20,
-    padding: 16,
+    padding: 12,
     gap: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#EFEFEF',
   },
   rankCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EFE3B0',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CCC',
   },
   rankText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#000000',
   },
@@ -564,19 +485,17 @@ const localStyles = StyleSheet.create({
     color: '#000000',
   },
   progressBarContainer: {
-    width: 60,
-    height: 8,
-    backgroundColor: '#FFFFFF',
+    width: 50,
+    height: 6,
+    backgroundColor: '#E0E0E0',
     borderRadius: 4,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
-    backgroundColor: '#189653',
     borderRadius: 4,
   },
   actionButton: {
-    backgroundColor: '#DABC4E',
     borderRadius: 30,
     paddingVertical: 16,
     alignItems: 'center',
@@ -585,6 +504,11 @@ const localStyles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 2,
     borderColor: '#000000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   actionButtonText: {
     fontSize: 15,

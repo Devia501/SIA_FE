@@ -334,16 +334,17 @@ const DataPrestasiScreen = () => {
     setIsSaving(true);
     
     try {
+        // 1. Ambil data prestasi lama
         const existingAchievements = await registrationService.getAchievements();
         
-        // Hapus semua prestasi lama yang ada di server
+        // 2. Hapus prestasi lama (Logic Anda saat ini - hati-hati, ini menghapus semua dulu baru add lagi)
         for (const item of existingAchievements) {
             if (item.id_achievement) {
                  await registrationService.deleteAchievement(item.id_achievement);
             }
         }
 
-        // Proses dan simpan prestasi yang valid (minimal Nama Prestasi terisi)
+        // 3. Filter data yang valid
         const validPrestasi = prestasiList.filter(item => 
             item.achievement_name.trim() !== ''
         );
@@ -351,27 +352,46 @@ const DataPrestasiScreen = () => {
         if (validPrestasi.length > 0) {
             for (const item of validPrestasi) {
                 
-                const payload: Partial<Achievement> = {
-                    id_profile: profileId || undefined, 
-                    achievement_name: item.achievement_name.trim(),
-                    year: item.year,
-                    achievement_type: item.achievement_type || undefined,
-                    achievement_level: item.achievement_level || undefined,
-                    organizer: item.organizer || undefined,
-                    ranking: item.ranking || undefined,
-                    certificate_path: item.file?.uri || item.certificate_path, 
-                };
+                // 🛑 PERBAIKAN DISINI: GUNAKAN FORMDATA
+                const formData = new FormData();
+
+                // Append text data
+                if (profileId) formData.append('id_profile', profileId.toString());
+                formData.append('achievement_name', item.achievement_name.trim());
+                if (item.year) formData.append('year', item.year.toString());
+                if (item.achievement_type) formData.append('achievement_type', item.achievement_type);
+                if (item.achievement_level) formData.append('achievement_level', item.achievement_level);
+                if (item.organizer) formData.append('organizer', item.organizer);
+                if (item.ranking) formData.append('ranking', item.ranking);
+
+                // 📌 APPEND FILE FISIK
+                // Cek apakah ada file baru yang dipilih user
+                if (item.file && item.file.uri) {
+                    const filePayload = {
+                        uri: Platform.OS === 'android' ? item.file.uri : item.file.uri.replace('file://', ''),
+                        name: item.file.name || 'document.pdf',
+                        type: item.file.type || 'application/pdf',
+                    };
+                    // 'certificate_path' harus sesuai dengan nama field di validasi Backend (StoreAchievementRequest)
+                    formData.append('certificate_path', filePayload as any);
+                } 
+                // Jika tidak ada file baru tapi ada path lama (kasus edit tanpa ganti file),
+                // biasanya backend butuh penanganan khusus. 
+                // Namun karena logic Anda adalah "Delete All -> Add All", 
+                // maka user WAJIB upload ulang file jika logic-nya seperti ini, 
+                // KECUALI Anda mengubah logic backend untuk menerima string path lama.
                 
-                await registrationService.addAchievement(payload);
+                // Panggil service dengan FormData
+                // Pastikan apiService.ts Anda menerima FormData!
+                await registrationService.addAchievement(formData);
             }
         }
         
-        Alert.alert('Sukses', 'Data Prestasi berhasil disimpan. Anda dapat melanjutkan.');
-        
-        // NAVIGASI KE LANGKAH TERAKHIR: DataOrangTua
+        Alert.alert('Sukses', 'Data Prestasi berhasil disimpan.');
         navigation.navigate('DataOrangTua'); 
 
     } catch (error: any) {
+        console.error("Upload Error:", error);
         const errorMessage = error.userMessage || error.response?.data?.message || 'Gagal menyimpan data prestasi.';
         Alert.alert('Error', errorMessage);
     } finally {

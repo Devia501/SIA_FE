@@ -247,7 +247,7 @@ const DropdownCard = ({ group, onRejectedDocumentPress, onRejectedPaymentPress }
 
     if (group.label === "Pembayaran") {
         const statusPembayaran = group.isApproved ? 'approved' : group.isRejected ? 'rejected' : 'pending';
-        icon = statusPembayaran === 'approved' ? '✓' : (statusPembayaran === 'rejected' ? '✕' : '•');
+        icon = statusPembayaran === 'approved' ? '✓' : (statusPembayaran === 'rejected' ? '✕' : '_');
         iconColor = statusPembayaran === 'approved' ? '#2DB872' : 
                     statusPembayaran === 'rejected' ? COLORS.ERROR_DARK : '#DABC4E';
         
@@ -288,7 +288,7 @@ const DropdownCard = ({ group, onRejectedDocumentPress, onRejectedPaymentPress }
                     ) : icon === '✕' ? (
                         <Text style={localStyles.crossMarkText}>✕</Text>
                     ) : (
-                        <Text style={localStyles.pendingText}>•</Text>
+                        <Text style={localStyles.pendingText}>_</Text>
                     )}
                 </View>
                 
@@ -365,104 +365,133 @@ const StatusPendaftaranProses = () => {
   const [selectedRejectedPayment, setSelectedRejectedPayment] = useState<PaymentInfo | null>(null);
 
   const loadStatusData = useCallback(async () => {
-  setIsLoading(true);
-  try {
-      // Load profile
+    setIsLoading(true);
+    try {
+      // 1. Load Data Profil & Dokumen Utama
       const profile = await registrationService.getProfile();
-      
-      // Load documents
       const documents = await registrationService.getDocuments();
-      
-      // Load payment info
+
+      // 2. Load Data Prestasi
+      let achievements: any[] = [];
+      try {
+        achievements = await registrationService.getAchievements();
+      } catch (error) {
+        console.log("Prestasi kosong/error:", error);
+      }
+
+      // 3. Load Data Pembayaran
       let paymentData = null;
       try {
-          const paymentResponse = await paymentService.getMyPayment();
-          console.log('💳 Raw payment response:', paymentResponse); // ✅ Debugging
-          if (paymentResponse && paymentResponse.payment) {
-              paymentData = {
-                  id: paymentResponse.payment.id,
-                  status: paymentResponse.payment.status,
-                  rejection_reason: paymentResponse.payment.rejection_reason,
-                  payment_proof_file: paymentResponse.payment.payment_proof_file
-              };
-              console.log('💳 Processed payment data:', paymentData); // ✅ Debugging
-          }
+        const paymentResponse = await paymentService.getMyPayment();
+        if (paymentResponse && paymentResponse.payment) {
+          paymentData = {
+            id: paymentResponse.payment.id,
+            status: paymentResponse.payment.status,
+            rejection_reason: paymentResponse.payment.rejection_reason,
+            payment_proof_file: paymentResponse.payment.payment_proof_file
+          };
+        }
       } catch (error) {
-          console.log('Payment data error:', error);
+        console.log('Payment data error:', error);
       }
 
       let foundRejected = false;
       const newGroupedDocuments: GroupedDocument[] = [];
 
       DOC_GROUPS_ALL.forEach(group => {
-          const groupDocs: Document[] = [];
-          let isRejectedByAdmin = false;
-          let isApprovedByAdmin = true;
-          let hasFiles = false;
+        let groupDocs: any[] = [];
+        let isRejectedByAdmin = false;
+        let isApprovedByAdmin = true;
+        let hasFiles = false;
 
+        // --- LOGIKA KHUSUS: DATA PRESTASI ---
+        if (group.label === "Data Prestasi") {
+          if (achievements && achievements.length > 0) {
+            hasFiles = true;
+            isApprovedByAdmin = true;
+            isRejectedByAdmin = false;
+
+            groupDocs = achievements.map(ach => ({
+              id_document: ach.id_achievement,
+              id_document_type: DOC_ID.PRESTASI,
+              document_name: ach.achievement_name || 'Sertifikat Prestasi',
+              verification_status: 'approved',
+              file_path: ach.certificate_path,
+              rejection_reason: null
+            }));
+          } else {
+            // JIKA KOSONG:
+            hasFiles = false;
+            isApprovedByAdmin = false;
+            
+            // Tetap set true agar Card-nya berwarna MERAH/SILANG (Visual)
+            isRejectedByAdmin = true; 
+          }
+        }
+        // --- LOGIKA KHUSUS: PEMBAYARAN ---
+        else if (group.label === "Pembayaran") {
+          if (paymentData) {
+            isRejectedByAdmin = paymentData.status === 'rejected';
+            isApprovedByAdmin = paymentData.status === 'verified';
+            hasFiles = !!paymentData.payment_proof_file;
+          } else {
+            isRejectedByAdmin = false;
+            isApprovedByAdmin = false;
+            hasFiles = false;
+          }
+        }
+        // --- LOGIKA UMUM: DOKUMEN LAIN ---
+        else {
           documents.forEach(doc => {
-              if (group.docTypeIds.includes(doc.id_document_type)) {
-                  groupDocs.push(doc); 
-                  hasFiles = true;
-                  if (doc.verification_status === 'rejected') isRejectedByAdmin = true;
-                  if (doc.verification_status !== 'approved') isApprovedByAdmin = false;
-              }
+            if (group.docTypeIds.includes(doc.id_document_type)) {
+              groupDocs.push(doc);
+              hasFiles = true;
+              if (doc.verification_status === 'rejected') isRejectedByAdmin = true;
+              if (doc.verification_status !== 'approved') isApprovedByAdmin = false;
+            }
           });
 
-          if (group.label === "Pembayaran") {
-              // Cek status pembayaran
-              if (paymentData) {
-                  isRejectedByAdmin = paymentData.status === 'rejected';
-                  isApprovedByAdmin = paymentData.status === 'verified';
-                  hasFiles = !!paymentData.payment_proof_file;
-                  
-                  console.log(`💳 Payment status: ${paymentData.status}, rejected: ${isRejectedByAdmin}, reason: ${paymentData.rejection_reason}`); // ✅ Debugging
-              } else {
-                  isRejectedByAdmin = false;
-                  isApprovedByAdmin = false;
-                  hasFiles = false;
-              }
-          } else if (group.label === "Data Prestasi") {
-               const hasPrestasiDocs = groupDocs.length > 0;
-               if (!hasPrestasiDocs) {
-                   isRejectedByAdmin = true;
-                   isApprovedByAdmin = false;
-               } else {
-                   isRejectedByAdmin = isRejectedByAdmin; // Keep existing status
-                   isApprovedByAdmin = !isRejectedByAdmin;
-               }
+          if (group.docTypeIds.length > 0 && groupDocs.length === 0) {
+            isApprovedByAdmin = false;
           }
+        }
 
-          if (isRejectedByAdmin) foundRejected = true;
-          
-          const groupData: GroupedDocument = { 
-              label: group.label, 
-              isUploaded: hasFiles, 
-              isRejected: isRejectedByAdmin, 
-              isApproved: isApprovedByAdmin, 
-              documents: groupDocs 
-          };
-          
-          // Tambahkan paymentInfo khusus untuk group Pembayaran
-          if (group.label === "Pembayaran" && paymentData) {
-              (groupData as any).paymentInfo = paymentData;
-          }
-          
-          newGroupedDocuments.push(groupData);
+        // --- PERBAIKAN UTAMA DISINI ---
+        // Cek flag global rejected.
+        // JIKA dokumen ditolak DAN BUKAN Data Prestasi, maka trigger alert perbaikan.
+        // Artinya: Kalau Data Prestasi merah (karena kosong), foundRejected tetap FALSE.
+        if (isRejectedByAdmin && group.label !== "Data Prestasi") {
+             foundRejected = true;
+        }
+
+        const groupData: GroupedDocument = {
+          label: group.label,
+          isUploaded: hasFiles,
+          isRejected: isRejectedByAdmin,
+          isApproved: isApprovedByAdmin,
+          documents: groupDocs
+        };
+
+        if (group.label === "Pembayaran" && paymentData) {
+          (groupData as any).paymentInfo = paymentData;
+        }
+
+        newGroupedDocuments.push(groupData);
       });
 
       const others = newGroupedDocuments.filter(g => g.label !== "Pembayaran");
       const payment = newGroupedDocuments.find(g => g.label === "Pembayaran");
       setGroupedDocuments(others.concat(payment ? [payment] : []));
-      setHasRejected(foundRejected || (payment?.isRejected || false));
+      
+      setHasRejected(foundRejected); // State global status (Banner atas)
       setPaymentInfo(paymentData);
 
-  } catch (e: any) { 
-      Alert.alert("Error", e.message); 
-  } finally { 
-      setIsLoading(false); 
-  }
-}, []);
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const handleUploadUlang = async (id: number, formData: FormData) => {
     setIsUploading(true);
@@ -563,7 +592,6 @@ const StatusPendaftaranProses = () => {
           <View style={localStyles.dokumenSection}>
             <Text style={localStyles.sectionTitle}>Hasil Verifikasi Dokumen</Text>
             
-            {/* ALERT PENOLAKAN SAMA PERSIS */}
             {hasRejected && (
                 <View style={localStyles.rejectionAlert}>
                     <View style={localStyles.infoIconCircleRed}>
@@ -580,15 +608,18 @@ const StatusPendaftaranProses = () => {
                 <DropdownCard 
                   key={idx} 
                   group={group} 
+                  // 1. Logic untuk Dokumen biasa (Tetap Buka Modal)
                   onRejectedDocumentPress={(doc:any) => { 
                     setSelectedRejectedDoc(doc); 
                     setSelectedRejectedPayment(null);
                     setIsRejectionModalVisible(true); 
                   }} 
+                  
+                  // 2. ⚡ PERUBAHAN DISINI: Logic Pembayaran (Navigasi ke RincianBiaya)
                   onRejectedPaymentPress={(payment:any) => {
-                    setSelectedRejectedPayment(payment);
-                    setSelectedRejectedDoc(null);
-                    setIsRejectionModalVisible(true);
+                    // Jangan buka modal, tapi pindah ke halaman Rincian Biaya
+                    // @ts-ignore 
+                    navigation.navigate('RincianBiayaPendaftaran');
                   }}
                 />
               ))}
@@ -677,7 +708,7 @@ const localStyles = StyleSheet.create({
   dokumenIcon: { width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   checkmarkSmall: { width: 6, height: 12, borderBottomWidth: 2, borderRightWidth: 2, borderColor: COLORS.WHITE, transform: [{ rotate: '45deg' }], marginBottom: 3 },
   crossMarkText: { color: COLORS.WHITE, fontWeight: 'bold', fontSize: 14, lineHeight: 18 },
-  pendingText: { color: COLORS.WHITE, fontWeight: 'bold', fontSize: 20, lineHeight: 20, marginTop: -3 },
+  pendingText: { color: COLORS.WHITE, fontWeight: 'bold', fontSize: 20, lineHeight: 20, marginTop: -16 },
   rejectedCountCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.ERROR_DARK, justifyContent: 'center', alignItems: 'center', marginRight: 5 },
   rejectedCountText: { color: COLORS.WHITE, fontSize: 10, fontWeight: 'bold' },
   dropdownIcon: { width: 15, height: 15, transform: [{ rotate: '0deg' }] },

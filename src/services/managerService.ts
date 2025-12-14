@@ -4,6 +4,17 @@ import api from './api';
 // ============================================
 // 📝 TYPES & INTERFACES
 // ============================================
+export interface PaymentStatistics {
+  total_payments: number;
+  pending: number;
+  waiting_verification: number;
+  verified: number;
+  rejected: number;
+  expired: number;
+  total_amount: number;       // Revenue Total
+  this_month_revenue: number; // Revenue Bulan Ini
+}
+
 export interface Applicant {
   id_profile: number;
   id_user: number;
@@ -39,6 +50,27 @@ export interface ApiResponse<T> {
 // 👨‍💼 MANAGER SERVICE (Full Access - Can Approve/Reject)
 // ============================================
 export const managerService = {
+  
+  /**
+   * 🆕 Get Payment Statistics
+   * Mengambil data dari PaymentController::statistics
+   * GET /api/payments/statistics
+   */
+  getPaymentStatistics: async (): Promise<ApiResponse<PaymentStatistics>> => {
+    try {
+      console.log('💰 Fetching payment statistics...');
+      
+      // ✅ GUNAKAN URL YANG SESUAI DENGAN api.php
+      const response = await api.get<ApiResponse<PaymentStatistics>>('/payments/statistics');
+      
+      console.log('✅ Payment statistics fetched successfully:', response.data.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Get payment statistics error:', error.response?.data || error.message);
+      throw new Error('Gagal mengambil statistik pembayaran.');
+    }
+  },
+  
   /**
    * Get list of applicants with filters
    * GET /api/admin/applicants

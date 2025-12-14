@@ -132,12 +132,12 @@ const styles = StyleSheet.create({
   },
   wave1: {
     zIndex: 1,
-    top: 25, 
+    top: 5, 
     opacity: 0.9,
   },
   wave2: {
     zIndex: 2,
-    top: 30,
+    top: 10,
   },
   contentContainer: {
     flex: 1,

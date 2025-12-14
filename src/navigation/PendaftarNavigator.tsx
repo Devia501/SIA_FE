@@ -19,6 +19,7 @@ import StatusPendaftaranDone from '../screens/pendaftar/StatusPendaftaranDone';
 import HasilDiterima from '../screens/pendaftar/HasilDiterima';
 import HasilDitolak from '../screens/pendaftar/HasilDitolak';
 import NotificationScreen from '../screens/pendaftar/NotificationScreen';
+import PengumumanListScreen from '../screens/pendaftar/PengumumanListScreen';
 
 export type PendaftarStackParamList = {
   PendaftarDashboard: undefined;
@@ -40,6 +41,7 @@ export type PendaftarStackParamList = {
   StatusPendaftaranDone: undefined;
   HasilDiterima: undefined;
   HasilDitolak: undefined;
+  PengumumanListScreen: undefined;
 };
 
 const Stack = createNativeStackNavigator<PendaftarStackParamList>();
@@ -93,6 +95,7 @@ const PendaftarNavigator: React.FC = () => {
       <Stack.Screen name="StatusPendaftaranDone" component={StatusPendaftaranDone} />
       <Stack.Screen name="HasilDiterima" component={HasilDiterima} />
       <Stack.Screen name="HasilDitolak" component={HasilDitolak} />
+      <Stack.Screen name="PengumumanListScreen" component={PengumumanListScreen} />
     </Stack.Navigator>
   );
 };

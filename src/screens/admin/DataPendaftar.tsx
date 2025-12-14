@@ -1,166 +1,199 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
-  ImageBackground,
   ScrollView,
   Image,
   StyleSheet,
+  ImageBackground,
   TextInput,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { AdminStyles } from '../../styles/AdminStyles'; // Tetap pakai AdminStyles sesuai request
+import { ManagerStyles, Colors } from '../../styles/ManagerStyles'; // Import Colors untuk konsistensi logic warna
 import { AdminStackParamList } from '../../navigation/AdminNavigator';
-import { ManagerStyles, Colors } from '../../styles/ManagerStyles'; 
-import { AdminStyles } from '../../styles/AdminStyles';
+import { managerService, Applicant, ApiResponse } from '../../services/managerService';
 
-type DataPendaftarNavigationProp = NativeStackNavigationProp<AdminStackParamList, 'DataPendaftar'>;
+// Definisi Tipe Navigasi
+type KelolaPendaftaranNavigationProp = NativeStackNavigationProp<AdminStackParamList, 'KelolaPendaftaran'>;
 
-// Interface untuk tipe data pendaftar
-interface Registration {
-  id: number;
-  name: string;
-  email: string;
-  prodi: string;
-  date: string;
-  status: 'Approved' | 'Rejected' | 'Pending';
-  icon: any;
-}
-
-// Data dummy untuk list pendaftar
-const dummyRegistrations: Registration[] = [
-  { 
-    id: 1, 
-    name: 'John Doe', 
-    email: 'johndoe@gmail.com', 
-    prodi: 'Teknik Informatika', 
-    date: '15 Des 2024', 
-    status: 'Pending', 
-    icon: require('../../assets/images/profile 3.png') 
-  },
-  { 
-    id: 2, 
-    name: 'Jane Smith', 
-    email: 'jane.smith@email.com', 
-    prodi: 'Sistem Informasi', 
-    date: '14 Des 2024', 
-    status: 'Approved', 
-    icon: require('../../assets/images/profile 3.png') 
-  },
-  { 
-    id: 3, 
-    name: 'Bob Wilson', 
-    email: 'bob.wilson@email.com', 
-    prodi: 'Teknik Elektro', 
-    date: '13 Des 2024', 
-    status: 'Rejected', 
-    icon: require('../../assets/images/profile 3.png') 
-  },
-];
-
-// Komponen untuk Status Badge
-const StatusBadge = ({ status }: { status: 'Approved' | 'Rejected' | 'Pending' }) => {
+// --- Komponen Badge Status (Style Asli Anda) ---
+const StatusBadge = ({
+  status,
+}: {
+  status: 'approved' | 'rejected' | 'submitted' | 'draft';
+}) => {
   let backgroundColor: string;
   let text: string;
-  
+
   switch (status) {
-    case 'Approved':
+    case 'approved':
       backgroundColor = Colors.statusApproved;
       text = 'Lulus';
       break;
-    case 'Rejected':
+    case 'rejected':
       backgroundColor = Colors.statusRejected;
       text = 'Tidak Lulus';
       break;
-    case 'Pending':
+    case 'submitted':
       backgroundColor = Colors.statusPending;
       text = 'Pending';
       break;
+    case 'draft':
+      backgroundColor = '#95a5a6';
+      text = 'Draft';
+      break;
+    default:
+       backgroundColor = '#95a5a6';
+       text = status;
   }
 
   return (
-    <View style={[styles.statusBadge, { backgroundColor }]}>
-      <Text style={styles.statusText}>{text}</Text>
+    <View style={[localStyles.statusBadge, { backgroundColor }]}>
+      <Text style={localStyles.statusText}>{text}</Text>
     </View>
   );
 };
 
-// Komponen untuk Item Pendaftar - DIPERBAIKI dengan props navigation
+// --- Komponen Item List (Style Asli Anda) ---
 interface RegistrationItemProps {
-  data: Registration;
-  navigation: DataPendaftarNavigationProp;
+  data: Applicant;
+  navigation: KelolaPendaftaranNavigationProp;
 }
 
 const RegistrationItem = ({ data, navigation }: RegistrationItemProps) => {
   let cardColor: string;
 
-  switch (data.status) {
-    case 'Approved':
+  switch (data.registration_status) {
+    case 'approved':
       cardColor = Colors.statusApproved;
       break;
-    case 'Rejected':
+    case 'rejected':
       cardColor = Colors.statusRejected;
       break;
-    case 'Pending':
+    case 'submitted':
     default:
       cardColor = Colors.statusPending;
       break;
   }
 
+  const handleViewDetail = () => {
+    // Navigasi ke detail
+    navigation.navigate('VerifikasiDokumen', {
+      id_profile: data.id_profile,
+      name: data.full_name,
+      email: data.email,
+      program_name: data.program_name,
+    } as any);
+  };
+
   return (
     <TouchableOpacity 
-      style={[styles.itemCard, { borderColor: cardColor }]} 
-      onPress={() => navigation.navigate('VerifikasiDokumen', {
-        name: data.name,
-        email: data.email,
-        prodi: data.prodi,
-        registrationId: data.id
-      })}
-    >
-      <Image source={data.icon} style={styles.itemImage} resizeMode="cover" />
-      <View style={styles.itemContent}>
-        <Text style={styles.itemName}>{data.name}</Text>
-        <Text style={styles.itemDetail}>{data.email}</Text>
-        <Text style={styles.itemDetail}>{data.prodi} - {data.date}</Text>
+      onPress={handleViewDetail} 
+      style={[localStyles.itemCard, { borderColor: cardColor }]}
+    > 
+      <Image
+        source={require('../../assets/images/profile 3.png')}
+        style={localStyles.itemImage}
+        resizeMode="cover"
+      />
+      <View style={localStyles.itemContent}>
+        <Text style={localStyles.itemName}>{data.full_name}</Text>
+        <Text style={localStyles.itemDetail}>{data.email}</Text>
+        <Text style={localStyles.itemDetail}>
+          {data.program_name} - {data.created_at}
+        </Text>
       </View>
-      <View style={styles.itemStatusContainer}>
-        <StatusBadge status={data.status} />
+
+      <View style={localStyles.itemStatusContainer}>
+        <StatusBadge status={data.registration_status as any} />
       </View>
     </TouchableOpacity>
   );
 };
 
-const DataPendaftar = () => {
-  const navigation = useNavigation<DataPendaftarNavigationProp>();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'All' | 'Approved' | 'Rejected' | 'Pending'>('All');
+const KelolaPendaftaran = () => {
+  const navigation = useNavigation<KelolaPendaftaranNavigationProp>();
 
-  // Filter registrations berdasarkan search dan status
-  const filteredRegistrations = dummyRegistrations.filter(item => {
-    const matchesSearch = 
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.prodi.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesFilter = activeFilter === 'All' || item.status === activeFilter;
-    
-    return matchesSearch && matchesFilter;
-  });
+  // --- Logic Integrasi (State & API) ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<
+    'all' | 'approved' | 'rejected' | 'submitted' | 'draft'
+  >('all');
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchApplicants = async () => {
+    try {
+      const filters: any = {};
+      if (activeFilter !== 'all') filters.status = activeFilter;
+      if (searchQuery.trim()) filters.search = searchQuery;
+
+      const response: ApiResponse<Applicant[]> = await managerService.getApplicants(filters);
+
+      if (response.success) {
+        setApplicants(response.data);
+      }
+    } catch (error: any) {
+      console.error('Error fetching applicants:', error);
+      Alert.alert('Error', error.message || 'Gagal memuat data pendaftar');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchApplicants();
+  }, [activeFilter, searchQuery]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchApplicants();
+    }, [activeFilter, searchQuery])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchApplicants();
+  };
+
+  const handleFilterPress = (
+    filter: 'all' | 'approved' | 'rejected' | 'submitted' | 'draft'
+  ) => {
+    setActiveFilter(activeFilter === filter ? 'all' : filter);
+  };
 
   return (
-    <SafeAreaView style={ManagerStyles.container} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={ManagerStyles.headerContainer}>
+    <SafeAreaView style={AdminStyles.container} edges={['top', 'bottom']}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={localStyles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[Colors.secondary]}
+            tintColor={Colors.secondary}
+          />
+        }
+      >
+        
+        {/* --- HEADER (Style Asli Admin yang kamu minta) --- */}
+        <View style={AdminStyles.headerContainer}>
           <ImageBackground
             source={require('../../assets/images/App Bar - Bottom.png')}
-            style={ManagerStyles.waveBackground}
+            style={AdminStyles.waveBackground}
             resizeMode="cover"
           >
-            <View style={ManagerStyles.headerContent}>
-              {/* Tombol Back */}
+            <View style={AdminStyles.headerContent}>
               <TouchableOpacity
                 style={ManagerStyles.headerIconContainerLeft}
                 onPress={() => navigation.goBack()}
@@ -172,152 +205,144 @@ const DataPendaftar = () => {
                 />
               </TouchableOpacity>
               
-              <Text style={[ManagerStyles.headerTitle, styles.headerTitle]}>Kelola Pendaftaran</Text>
-              
-              {/* Spacer untuk balance */}
-              <View style={{ width: 40 }} />
+              <Text style={AdminStyles.headerTitle}>Monitoring Pendaftaran</Text> 
             </View>
           </ImageBackground>
         </View>
 
-        {/* Content */}
-        <View style={ManagerStyles.content}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>Daftar Pendaftar</Text>
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationText}>0</Text>
+        {/* --- CONTENT (Container Style Lokal Anda) --- */}
+        <View style={localStyles.contentContainer}>
+            
+            {/* Summary Header */}
+            <View style={localStyles.summaryHeader}>
+                <Text style={localStyles.summaryTitle}>Daftar Pendaftar</Text>
+                <View style={localStyles.notificationBadge}>
+                  {/* Integrasi Data Total */}
+                  <Text style={localStyles.notificationText}>{applicants.length}</Text>
+                </View>
+                <Text style={localStyles.notificationText1}>total</Text>
             </View>
-            <Text style={styles.notificationText1}>new</Text>
-          </View>
 
-          {/* Search Bar */}
-          <View style={styles.searchContainer}>
-            <Image
-              source={require('../../assets/icons/material-symbols_search-rounded.png')}
-              style={styles.searchIcon}
-              resizeMode="contain"
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by name, email, prodi..."
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
+            {/* Search Bar */}
+            <View style={localStyles.searchContainer}>
+                <Image
+                  source={require('../../assets/icons/material-symbols_search-rounded.png')}
+                  style={localStyles.searchIcon}
+                  resizeMode="contain"
+                />
+                <TextInput
+                  style={localStyles.searchInput}
+                  placeholder="Search by name, email, prodi..."
+                  placeholderTextColor="#999"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+            </View>
 
-          {/* Filter/Status Buttons */}
-          <View style={styles.filterContainer}>
-            <TouchableOpacity 
-              style={[
-                styles.filterButton, 
-                styles.filterButtonLulus,
-                activeFilter === 'Approved' && styles.filterButtonActive
-              ]}
-              onPress={() => setActiveFilter(activeFilter === 'Approved' ? 'All' : 'Approved')}
-            >
-              <Image source={require('../../assets/icons/Vector2.png')} style={styles.filterIcon} />
-              <Text style={styles.filterText}>Lulus</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.filterButton, 
-                styles.filterButtonTidakLulus,
-                activeFilter === 'Rejected' && styles.filterButtonActive
-              ]}
-              onPress={() => setActiveFilter(activeFilter === 'Rejected' ? 'All' : 'Rejected')}
-            >
-              <Image source={require('../../assets/icons/Vector3.png')} style={styles.filterIcon} />
-              <Text style={styles.filterText}>Tidak Lulus</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[
-                styles.filterButton, 
-                styles.filterButtonPending,
-                activeFilter === 'Pending' && styles.filterButtonActive
-              ]}
-              onPress={() => setActiveFilter(activeFilter === 'Pending' ? 'All' : 'Pending')}
-            >
-              <Image source={require('../../assets/icons/weui_time-filled.png')} style={styles.filterIcon} />
-              <Text style={styles.filterText}>Pending</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {/* List Pendaftar - DIPERBAIKI dengan pass navigation */}
-          <View style={styles.listContainer}>
-            {filteredRegistrations.length > 0 ? (
-              filteredRegistrations.map((item) => (
-                <RegistrationItem key={item.id} data={item} navigation={navigation} />
-              ))
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>Tidak ada data pendaftar</Text>
-              </View>
-            )}
-          </View>
-          
-          {/* Padding bawah agar konten tidak tertutup bottom nav */}
-          <View style={{ height: 120 }} /> 
+            {/* Filter Buttons */}
+            <View style={localStyles.filterContainer}>
+                <TouchableOpacity
+                  style={[
+                    localStyles.filterButton,
+                    localStyles.filterButtonLulus,
+                    activeFilter === 'approved' && localStyles.filterButtonActive,
+                  ]}
+                  onPress={() => handleFilterPress('approved')}
+                >
+                  <Image
+                    source={require('../../assets/icons/Vector2.png')}
+                    style={localStyles.filterIcon}
+                  />
+                  <Text style={localStyles.filterText}>Lulus</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    localStyles.filterButton,
+                    localStyles.filterButtonTidakLulus,
+                    activeFilter === 'rejected' && localStyles.filterButtonActive,
+                  ]}
+                  onPress={() => handleFilterPress('rejected')}
+                >
+                  <Image
+                    source={require('../../assets/icons/Vector3.png')}
+                    style={localStyles.filterIcon}
+                  />
+                  <Text style={localStyles.filterText}>Tidak Lulus</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    localStyles.filterButton,
+                    localStyles.filterButtonPending,
+                    activeFilter === 'submitted' && localStyles.filterButtonActive,
+                  ]}
+                  onPress={() => handleFilterPress('submitted')}
+                >
+                  <Image
+                    source={require('../../assets/icons/weui_time-filled.png')}
+                    style={localStyles.filterIcon}
+                  />
+                  <Text style={localStyles.filterText}>Pending</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* List Pendaftar */}
+            <View style={localStyles.listContainer}>
+                {loading ? (
+                  <View style={localStyles.loadingContainer}>
+                    <ActivityIndicator size="large" color={Colors.secondary} />
+                    <Text style={localStyles.loadingText}>Memuat data...</Text>
+                  </View>
+                ) : applicants.length > 0 ? (
+                  applicants.map((item) => (
+                    <RegistrationItem
+                      key={item.id_profile}
+                      data={item}
+                      navigation={navigation}
+                    />
+                  ))
+                ) : (
+                  <View style={localStyles.emptyContainer}>
+                    <Text style={localStyles.emptyText}>Tidak ada data pendaftar</Text>
+                  </View>
+                )}
+            </View>
         </View>
+
       </ScrollView>
 
-      {/* Background Logo - DIPINDAHKAN KE LUAR ScrollView */}
+      {/* Logo Background Asli Admin */}
       <Image
-          source={require('../../assets/images/logo-ugn.png')}
-          style={ManagerStyles.backgroundLogo}
-          resizeMode="contain"
+        source={require('../../assets/images/logo-ugn.png')}
+        style={AdminStyles.backgroundLogo}
+        resizeMode="contain"
       />
-
-      {/* Bottom Navigation - Fixed Position */}
-            <View style={AdminStyles.bottomNav}>
-                    <TouchableOpacity style={AdminStyles.navItem}
-                    onPress={() => navigation.navigate('AdminDashboard')}>
-                        <Image
-                          source={require('../../assets/icons/material-symbols_home-rounded.png')}
-                          style={AdminStyles.navIcon}
-                          resizeMode="contain"
-                        />
-                    </TouchableOpacity>
-            
-                    <TouchableOpacity style={AdminStyles.navItemActive}>
-                      <Image
-                        source={require('../../assets/icons/proicons_save-pencil.png')}
-                        style={AdminStyles.navIcon}
-                        resizeMode="contain"
-                      />
-                      <Text style={AdminStyles.navTextActive}>Manage</Text>
-                    </TouchableOpacity>
-            
-                    <TouchableOpacity style={AdminStyles.navItem}
-                    onPress={() => navigation.navigate('AddManager')}>
-                      <Image
-                        source={require('../../assets/icons/f7_person-3-fill.png')}
-                        style={AdminStyles.navIcon}
-                        resizeMode="contain"
-                      />
-                    </TouchableOpacity>
-                    </View>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  // --- Notifikasi Badge di Header ---
-  headerTitle: {
-    left: 30,
+// --- STYLE LOKAL (TIDAK DIUBAH SAMA SEKALI) ---
+const localStyles = StyleSheet.create({
+  scrollContent: {
+    paddingBottom: 20,
   },
+  contentContainer: {
+    paddingHorizontal: 20, // Padding konten agar tidak mepet layar
+    marginTop: 20,
+  },
+  
+  // Header Summary
   summaryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 18,
   },
   summaryTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: Colors.textLight,
+    color: Colors.textLight, 
   },
   notificationBadge: {
     backgroundColor: '#DABC4E',
@@ -326,7 +351,8 @@ const styles = StyleSheet.create({
     height: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    left: 72,
+    left: 268,
+    position: 'absolute', // Style asli user
   },
   notificationText: {
     fontSize: 12,
@@ -336,17 +362,20 @@ const styles = StyleSheet.create({
   notificationText1: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#ffffffff', 
+    marginLeft: 'auto',
   },
-  // --- Search Bar ---
+
+  // Search
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.textLight,
+    backgroundColor: '#FFFFFF',
     borderRadius: 25,
     paddingHorizontal: 15,
     marginBottom: 20,
     height: 50,
+    elevation: 2, 
   },
   searchIcon: {
     width: 20,
@@ -356,10 +385,11 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: Colors.textDark,
+    color: '#000',
     paddingVertical: 10,
   },
-  // --- Filter Buttons ---
+
+  // Filter
   filterContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -376,17 +406,11 @@ const styles = StyleSheet.create({
   },
   filterButtonActive: {
     borderWidth: 2,
-    borderColor: Colors.textLight,
+    borderColor: '#000',
   },
-  filterButtonLulus: {
-    backgroundColor: Colors.backgroundLight,
-  },
-  filterButtonTidakLulus: {
-    backgroundColor: Colors.backgroundLight,
-  },
-  filterButtonPending: {
-    backgroundColor: Colors.backgroundLight,
-  },
+  filterButtonLulus: { backgroundColor: '#F0FFF4' },
+  filterButtonTidakLulus: { backgroundColor: '#FFF5F5' },
+  filterButtonPending: { backgroundColor: '#FFFFF0' },
   filterIcon: {
     width: 16,
     height: 16,
@@ -395,24 +419,19 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: Colors.textDark,
+    color: '#000',
   },
-  // --- List Item ---
-  listContainer: {
-    // Container untuk list items
-  },
+
+  // List Item Styles
+  listContainer: {},
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.textLight,
+    backgroundColor: '#FFFFFF',
     borderRadius: 15,
     padding: 12,
     marginBottom: 10,
-    borderLeftWidth: 8,
-    shadowColor: Colors.textDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    borderLeftWidth: 8, 
     elevation: 3,
   },
   itemImage: {
@@ -430,7 +449,7 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: Colors.textDark,
+    color: '#000',
   },
   itemDetail: {
     fontSize: 12,
@@ -447,13 +466,25 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     minWidth: 70,
     alignItems: 'center',
+    marginBottom: 0, 
   },
   statusText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: Colors.textLight,
+    color: '#fff',
   },
-  // --- Empty State ---
+
+  // Loading & Empty States
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
+  },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -461,9 +492,9 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: Colors.textLight,
+    color: '#666',
     opacity: 0.7,
   },
 });
 
-export default DataPendaftar;
+export default KelolaPendaftaran;

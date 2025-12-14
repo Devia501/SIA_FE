@@ -151,7 +151,6 @@ const DocumentCard = ({
   );
 };
 
-// 🆕 Komponen Card Khusus Prestasi (Hanya Lihat)
 const AchievementCard = ({ 
   achievement, 
   onView 

@@ -1,4 +1,4 @@
-// src/screens/pendaftar/HasilDiterima.tsx
+// src/screens/pendaftar/HasilDitolak.tsx
 
 import React, { useState } from 'react';
 import {
@@ -13,14 +13,14 @@ import {
   Platform,
   LayoutAnimation,
   UIManager,
-  Modal, 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PendaftarStackParamList } from '../../navigation/PendaftarNavigator';
 import PendaftarStyles from '../../styles/PendaftarStyles';
 import LinearGradient from 'react-native-linear-gradient';
+import { Profile } from '../../services/apiService'; 
 
 if (
   Platform.OS === 'android' &&
@@ -28,6 +28,14 @@ if (
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+// 東 DEFINISI TIPE PARAMETER MANUAL
+type HasilScreenParams = {
+  HasilDitolak: {
+    profile: Profile;
+    programName: string;
+  };
+};
 
 type HasilDitolakNavigationProp = NativeStackNavigationProp<
   PendaftarStackParamList,
@@ -46,46 +54,29 @@ const COLORS = {
   TEXT_LIGHT: '#FFF',
 };
 
-// Data Dummy Pendaftar
-const DUMMY_USER_DATA = {
-  name: 'Sarah Johnson',
-  nomorPeserta: '140072569877',
-  program: 'Ilmu Komputer',
-  tanggalLahir: '31/12/2006',
-  status: 'Tidak Diterima',
-  emailOptions: [
-    'sarahjohnson@mail.ugn.ac.id',
-    'sarahjohnson2006@mail.ugn.ac.id',
-    'sarahjohnson128@mail.ugn.ac.id',
-  ],
-};
-
 // ============================================
 //  Komponen HasilDitolak
 // ============================================
 const HasilDitolak = () => {
   const navigation = useNavigation<HasilDitolakNavigationProp>();
-  const [isClaimDropdownOpen, setIsClaimDropdownOpen] = useState(false);
-  const [selectedEmail, setSelectedEmail] = useState<string | null>(
-    DUMMY_USER_DATA.emailOptions[0]
-  );
-  const [isModalVisible, setIsModalVisible] = useState(false);
+  
+  // 東 FIX: Gunakan tipe RouteProp manual
+  const route = useRoute<RouteProp<HasilScreenParams, 'HasilDitolak'>>();
+  
+  // Ambil Data Profil & Program Name
+  const profile = route.params?.profile;
+  const programName = route.params?.programName || 'Program Studi';
 
-  const toggleDropdown = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsClaimDropdownOpen(!isClaimDropdownOpen);
-  };
-
-  const handleKlaimAkun = () => {
-    if (!selectedEmail) {
-      Alert.alert('Peringatan', 'Pilih salah satu email untuk klaim akun.');
-      return;
+  // 泊 LOGIKA INISIAL NAMA
+  const getInitials = (name: string) => {
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return parts[0][0].toUpperCase() + parts[1][0].toUpperCase();
     }
-    
-    // Tampilkan modal sukses dan tutup dropdown
-    setIsClaimDropdownOpen(false);
-    setIsModalVisible(true);
-    // Lakukan panggilan API klaim di sini (jika ada)
+    if (parts.length === 1 && parts[0]) {
+      return parts[0][0].toUpperCase();
+    }
+    return 'CM'; 
   };
 
   return (
@@ -116,12 +107,12 @@ const HasilDitolak = () => {
           </ImageBackground>
         </View>
 
-        {/* Bagian 'Selamat!' yang dipisah */}
+        {/* Bagian 'Mohon Maaf!' */}
         <View style={localStyles.welcomeSection}>
           <Text style={localStyles.welcomeTitle}>Mohon Maaf!</Text>
         </View>
 
-        {/* Status Konfirmasi Card - Teks Kelulusan */}
+        {/* Status Konfirmasi Card */}
           <View> 
             <LinearGradient
                     colors={[COLORS.ACCENT_LIGHT, COLORS.ACCENT_BG]}
@@ -129,7 +120,6 @@ const HasilDitolak = () => {
                     end={{ x: 1, y: 0.5 }}
                     style={localStyles.confirmationCard}
                     >
-            {/* Bagian utama teks kelulusan */}
             <View style={localStyles.lulusSection}>
                 <Text style={localStyles.confirmationText}>
                 Mohon Maaf!{'\n'}Anda dinyatakan <Text style={localStyles.boldText}>tidak lulus seleksi</Text>
@@ -150,21 +140,23 @@ const HasilDitolak = () => {
         {/* Content */}
         <View style={localStyles.content}>
           
-
-          {/* Detail Pendaftar Card */}
+          {/* Detail Pendaftar Card (DINAMIS) */}
           <View style={localStyles.detailCard}>
             <View style={localStyles.profileHeader}>
-              <Image
-                source={require('../../assets/images/profile 3.png')}
-                style={localStyles.profilePic}
-                resizeMode="cover"
-              />
+              {/* MODIFIKASI: Menampilkan Inisial Nama */}
+              <View style={localStyles.avatarPlaceholder}>
+                   <Text style={localStyles.avatarText}>
+                     {getInitials(profile?.full_name || 'Calon Mahasiswa')}
+                   </Text>
+              </View>
+
               <View>
+                {/* 東 Tampilkan Nama Asli */}
                 <Text style={localStyles.detailName}>
-                  {DUMMY_USER_DATA.name}
+                  {profile?.full_name || 'Nama Tidak Tersedia'}
                 </Text>
                 <Text style={localStyles.detailNumber}>
-                  Nomor Peserta: {DUMMY_USER_DATA.nomorPeserta}
+                  Nomor Peserta: {profile?.registration_number || '-'}
                 </Text>
               </View>
             </View>
@@ -172,20 +164,21 @@ const HasilDitolak = () => {
             {/* Detail Program & Status */}
             <View style={localStyles.detailRow}>
               <Text style={localStyles.detailLabel}>Program :</Text>
+              {/* 東 Tampilkan Nama Program Asli */}
               <Text style={localStyles.detailValue}>
-                {DUMMY_USER_DATA.program}
+                {programName}
               </Text>
             </View>
             <View style={localStyles.detailRow}>
               <Text style={localStyles.detailLabel}>Tanggal lahir :</Text>
               <Text style={localStyles.detailValue}>
-                {DUMMY_USER_DATA.tanggalLahir}
+                {profile?.birth_date || '-'}
               </Text>
             </View>
             <View style={localStyles.detailRow}>
               <Text style={localStyles.detailLabel}>Status :</Text>
               <Text style={localStyles.statusDiterima}>
-                {DUMMY_USER_DATA.status}
+                Tidak Diterima
               </Text>
             </View>
           </View>
@@ -228,7 +221,7 @@ const localStyles = StyleSheet.create({
     backgroundColor: COLORS.PRIMARY_DARK,
   },
   progressBadge: {
-    backgroundColor: COLORS.ACCENT_LIGHT, // Emas
+    backgroundColor: COLORS.ACCENT_LIGHT, 
     borderRadius: 15,
     paddingVertical: 6,
     paddingHorizontal: 20,
@@ -255,11 +248,7 @@ const localStyles = StyleSheet.create({
     marginTop: 50,
     alignItems: 'center',
   },
-
-
-  // Confirmation Card - Selamat
   confirmationCard: {
-    //backgroundColor: COLORS.ACCENT_BG,
     borderRadius: 10,
     padding: 30,
     width: '90%',
@@ -274,35 +263,28 @@ const localStyles = StyleSheet.create({
     borderColor: '#000',
     marginLeft: 20,
   },
-  
-  // Gaya untuk memisahkan 'Selamat!'
   welcomeSection: {
-    // Styling untuk container Selamat!
     backgroundColor: COLORS.ERROR_DARK,
     paddingHorizontal: 100,
     paddingVertical: 10,
     marginTop: 40, 
     borderWidth: 2,
-    borderColor: '#000', // Menggunakan konstanta warna emas
+    borderColor: '#000', 
   },
   welcomeTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: COLORS.WHITE, // Warna teks putih
+    color: COLORS.WHITE, 
     textAlign: 'center',
   },
   lulusSection: {
-    // Container untuk teks kelulusan agar terpisah
-    marginBottom: 10, // Jarak dari teks kelulusan ke nama universitas
+    marginBottom: 10, 
   },
-
-  // confirmationTitle yang asli sudah dihapus dan diganti dengan welcomeTitle
   confirmationText: {
     fontSize: 14,
     color: COLORS.TEXT_DARK,
     textAlign: 'center',
     lineHeight: 20,
-    // marginBottom: 5, // Dihapus karena sudah ada margin di lulusSection
   },
   boldText: {
     fontWeight: 'bold',
@@ -314,8 +296,6 @@ const localStyles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10, 
   },
-
-  // Detail Pendaftar Card
   detailCard: {
     backgroundColor: COLORS.ACCENT_BG,
     borderRadius: 15,
@@ -334,13 +314,22 @@ const localStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#DDD',
   },
-  profilePic: {
+  // 🔑 GAYA BARU UNTUK INISIAL (Kecil)
+  avatarPlaceholder: {
     width: 50,
     height: 50,
     borderRadius: 25,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 10,
     borderWidth: 2,
     borderColor: COLORS.ACCENT_LIGHT,
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.PRIMARY_DARK,
   },
   detailName: {
     fontSize: 16,
@@ -370,10 +359,7 @@ const localStyles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.TEXT_DARK,
   },
-
-  // Tombol Kembali ke Home
   homeButton: {
-    //backgroundColor: COLORS.SUCCESS_GREEN,
     borderRadius: 25,
     paddingVertical: 8,
     paddingHorizontal: 50,

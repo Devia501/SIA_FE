@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,100 +7,251 @@ import {
   ScrollView,
   Image,
   StyleSheet,
+  Alert,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AdminStackParamList } from '../../navigation/AdminNavigator';
+import { managerService } from '../../services/managerService'; // Integrasi Service
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ===========================================
+// 1. DEFINISI TIPE DAN INTERFACE
+// ===========================================
 
 type VerifikasiDokumenNavigationProp = NativeStackNavigationProp<AdminStackParamList, 'VerifikasiDokumen'>;
 
-// Interface untuk dokumen yang dimodifikasi untuk menampung status detail
-interface Document {
-  id: number;
-  name: string;
-  filename: string;
-  isValid: boolean;
-  validationMessage: string;
+// Interface Data Asli (Sama dengan Manager)
+interface DocumentItem {
+  id_document: number;
+  document_name: string;
+  file_url: string;      
+  file_path: string;     
+  verification_status: 'pending' | 'approved' | 'rejected';
+  rejection_reason?: string;
 }
 
-// Props untuk screen ini
+interface AchievementItem {
+  id_achievement: number;
+  achievement_name: string;
+  achievement_level: string;
+  year: number;
+  ranking?: string;
+  file_path: string;
+}
+
 interface VerifikasiDokumenProps {
   route: {
     params: {
+      id_profile: number; // Menggunakan id_profile untuk fetch API
       name: string;
       email: string;
-      prodi: string;
-      registrationId: number;
+      program_name: string;
     };
   };
 }
 
-// Data dummy dokumen disesuaikan dengan desain Figma
-const dummyDocuments: Document[] = [
-  { id: 1, name: 'KTP/Identitas', filename: 'ktp_john_doe.jpg', isValid: true, validationMessage: 'VALID - Clear & Readable' },
-  { id: 2, name: 'Akta Kelahiran', filename: 'akta_john.pdf', isValid: false, validationMessage: 'Invalid - Data does not match' },
-  { id: 3, name: 'Kartu Keluarga', filename: 'kk_john.pdf', isValid: true, validationMessage: 'VALID - Good Quality' },
-  { id: 4, name: 'Ijazah / SKL', filename: 'ijazah_john.pdf', isValid: false, validationMessage: 'Invalid - Data does not match' },
-  { id: 5, name: 'Transkrip Nilai', filename: 'transkrip_nilai_john.pdf', isValid: true, validationMessage: 'VALID - Good Quality' },
-];
+// ===========================================
+// 2. KOMPONEN CARD
+// ===========================================
 
-// Komponen untuk Document Card yang disesuaikan dengan desain Figma
+// Card Dokumen (Style Admin, Data Real)
 const DocumentCard = ({ 
   document, 
+  onView 
 }: { 
-  document: Document; 
+  document: DocumentItem; 
+  onView: () => void;
 }) => {
-  const statusIconSource = document.isValid
-    ? require('../../assets/icons/Vector8.png') // Asumsi ikon ✓ ada
-    : require('../../assets/icons/fluent_warning-12-filled.png'); // Asumsi ikon ! ada
+  const isApproved = document.verification_status === 'approved';
+  const isRejected = document.verification_status === 'rejected';
+  
+  // Logika Tampilan Status
+  let statusText = 'PENDING - Menunggu Review';
+  let statusColor = '#E8A349'; // Kuning/Orange
+  let iconSource = require('../../assets/icons/fluent_warning-12-filled.png');
+
+  if (isApproved) {
+    statusText = 'VALID - Terverifikasi';
+    statusColor = '#5D7C3F'; // Hijau
+    iconSource = require('../../assets/icons/Vector8.png');
+  } else if (isRejected) {
+    statusText = `INVALID - ${document.rejection_reason || 'Ditolak'}`;
+    statusColor = '#BE0414'; // Merah
+    iconSource = require('../../assets/icons/fluent_warning-12-filled.png');
+  }
+
+  const fileName = document.file_path ? document.file_path.split('/').pop() : 'File Name Unavailable';
 
   return (
     <View style={styles.documentCard}>
       <View style={styles.documentHeader}>
-        <Text style={styles.documentName}>{document.name}</Text>
+        <Text style={styles.documentName}>{document.document_name}</Text>
       </View>
       
       <View style={styles.documentBody}>
-        {/* Ikon file generik (di Figma, ini seperti ikon dokumen) */}
         <Image 
-          source={require('../../assets/icons/File.png')} // Ganti dengan ikon file Anda
+          source={require('../../assets/icons/File.png')} 
           style={styles.fileIcon}
           resizeMode="contain"
         />
         <View style={styles.documentTextContainer}>
-            <Text style={styles.filename}>{document.filename}</Text>
+            <Text style={styles.filename} numberOfLines={1}>{fileName}</Text>
             <View style={styles.validationStatus}>
                 <Image 
-                    source={document.isValid ? require('../../assets/icons/Vector8.png') : require('../../assets/icons/fluent_warning-12-filled.png')} 
-                    style={[styles.statusCheckIcon, { 
-                        tintColor: document.isValid ? '#5D7C3F' : '#E8A349' // Warna status
-                    }]}
+                    source={iconSource} 
+                    style={[styles.statusCheckIcon, { tintColor: statusColor }]}
                     resizeMode="contain"
                 />
-                <Text style={[
-                    styles.validationText, 
-                    { color: document.isValid ? '#5D7C3F' : '#E8A349' }
-                ]}>
-                    {document.validationMessage}
+                <Text style={[styles.validationText, { color: statusColor }]}>
+                    {statusText}
                 </Text>
             </View>
         </View>
+
+        {/* Tombol Lihat File */}
+        <TouchableOpacity style={styles.viewButton} onPress={onView}>
+          <Image 
+            source={require('../../assets/icons/fi-sr-eye.png')} 
+            style={styles.viewIcon}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
       </View>
-      {/* Semua status badge lama dihilangkan */}
     </View>
   );
 };
 
+// Card Prestasi (Style Admin)
+const AchievementCard = ({ 
+  achievement, 
+  onView 
+}: { 
+  achievement: AchievementItem; 
+  onView: () => void;
+}) => {
+  const fileName = achievement.file_path ? achievement.file_path.split('/').pop() : 'Sertifikat';
+
+  return (
+    <View style={[styles.documentCard, { borderColor: '#189653' }]}>
+      <View style={styles.documentHeader}>
+        <Text style={[styles.documentName, { color: '#189653' }]}>{achievement.achievement_name}</Text>
+        <Text style={{ fontSize: 10, color: '#666', fontStyle: 'italic' }}>
+           {achievement.achievement_level} - {achievement.year}
+        </Text>
+      </View>
+      
+      <View style={styles.documentBody}>
+        <Image 
+          source={require('../../assets/icons/File.png')} 
+          style={styles.fileIcon}
+          resizeMode="contain"
+        />
+        <View style={styles.documentTextContainer}>
+            <Text style={styles.filename} numberOfLines={1}>{fileName}</Text>
+            <View style={styles.validationStatus}>
+                <Image 
+                    source={require('../../assets/icons/Vector8.png')} 
+                    style={[styles.statusCheckIcon, { tintColor: '#5D7C3F' }]}
+                    resizeMode="contain"
+                />
+                <Text style={[styles.validationText, { color: '#5D7C3F' }]}>
+                    Opsional - Terlampir
+                </Text>
+            </View>
+        </View>
+
+        <TouchableOpacity style={styles.viewButton} onPress={onView}>
+          <Image 
+            source={require('../../assets/icons/fi-sr-eye.png')} 
+            style={styles.viewIcon}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+// ===========================================
+// 3. SCREEN UTAMA
+// ===========================================
 
 const VerifikasiDokumenScreen: React.FC<VerifikasiDokumenProps> = ({ route }) => {
   const navigation = useNavigation<VerifikasiDokumenNavigationProp>();
+  const { id_profile, name, email, program_name } = route.params;
+
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [achievements, setAchievements] = useState<AchievementItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fungsi Fetch Data (Sama dengan Manager)
+  const fetchDocuments = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [docsResponse, achievementsResponse] = await Promise.all([
+         managerService.getApplicantDocuments(id_profile),
+         managerService.getApplicantAchievements(id_profile).catch(() => ({ success: false, data: [] }))
+      ]);
+      
+      if (docsResponse.success) {
+        const documentsData = docsResponse.data.documents || [];
+        const mappedDocuments = documentsData.map((doc: any) => ({
+          id_document: doc.id_document || doc.id || doc.document_id, 
+          document_name: doc.name || 'Unknown Document', 
+          file_url: doc.file_url || doc.file_path || '',
+          file_path: doc.file_path || doc.file_url || '',
+          verification_status: (doc.status || 'pending').toLowerCase(),
+          rejection_reason: doc.rejection_reason || null,
+        }));
+        setDocuments(mappedDocuments);
+      }
+
+      if (achievementsResponse.success && Array.isArray(achievementsResponse.data)) {
+         setAchievements(achievementsResponse.data);
+      } else {
+         setAchievements([]);
+      }
+
+    } catch (error: any) {
+      console.error('Fetch error:', error);
+      Alert.alert('Error', 'Gagal memuat data dokumen.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id_profile]);
   
-  // State untuk dokumen
-  const [documents] = useState<Document[]>(dummyDocuments);
-  
-  // Data pendaftar dari route params
-  const { name } = route.params;
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  // Fungsi Buka File (Sama dengan Manager)
+  const handleView = (item: DocumentItem | AchievementItem, type: 'document' | 'achievement') => {
+    const BASE_API_URL = 'http://172.27.86.208:8000/api'; 
+    let FILE_ENDPOINT = '';
+
+    if (type === 'document') {
+        FILE_ENDPOINT = `/admin/document-file/${(item as DocumentItem).id_document}`;
+    } else {
+        FILE_ENDPOINT = `/admin/achievement-file/${(item as AchievementItem).id_achievement}`;
+    }
+    
+    AsyncStorage.getItem('token').then(token => {
+        if (token) {
+            const authenticatedUrl = `${BASE_API_URL}${FILE_ENDPOINT}?token=${token}`; 
+            Linking.openURL(authenticatedUrl).catch(err => {
+                Alert.alert("Gagal", "Tidak dapat membuka dokumen.");
+            });
+        } else {
+             Alert.alert('Gagal', 'Token otentikasi tidak ditemukan.');
+        }
+    }).catch(err => {
+         Alert.alert('Error', 'Gagal mendapatkan token.');
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -123,7 +274,7 @@ const VerifikasiDokumenScreen: React.FC<VerifikasiDokumenProps> = ({ route }) =>
               />
             </TouchableOpacity>
             
-            <Text style={styles.headerTitle}>Verifikasi Dokumen</Text>
+            <Text style={styles.headerTitle}>Monitoring Dokumen</Text>
             <View style={styles.headerSpacer} />
           </View>
         </ImageBackground>
@@ -139,22 +290,50 @@ const VerifikasiDokumenScreen: React.FC<VerifikasiDokumenProps> = ({ route }) =>
           <Text style={styles.applicantText}>{name} - Document Review</Text>
         </View>
 
-        {/* Documents List */}
-        {documents.map((doc) => (
-          <DocumentCard
-            key={doc.id}
-            document={doc}
-          />
-        ))}
+        {isLoading ? (
+             <ActivityIndicator size="large" color="#DABC4E" style={{ marginTop: 50 }} />
+        ) : (
+            <>
+                {/* Documents List */}
+                {documents.length > 0 ? (
+                    documents.map((doc) => (
+                    <DocumentCard
+                        key={doc.id_document}
+                        document={doc}
+                        onView={() => handleView(doc, 'document')}
+                    />
+                    ))
+                ) : (
+                    <Text style={{ color: '#FFF', textAlign: 'center', marginBottom: 20 }}>Tidak ada dokumen wajib.</Text>
+                )}
 
-        {/* Next Button (Digunakan sebagai tombol Lanjut ke screen lain jika perlu) */}
+                {/* Achievements List */}
+                {achievements.length > 0 && (
+                    <View style={{ marginTop: 10 }}>
+                         <Text style={{ color: '#DABC4E', fontWeight: 'bold', marginBottom: 10, fontSize: 16 }}>Dokumen Prestasi</Text>
+                         {achievements.map((ach) => (
+                            <AchievementCard
+                                key={ach.id_achievement}
+                                achievement={ach}
+                                onView={() => handleView(ach, 'achievement')}
+                            />
+                        ))}
+                    </View>
+                )}
+            </>
+        )}
+
+        {/* Next Button */}
         <TouchableOpacity 
           style={styles.nextButton}
-          onPress={() => {navigation.navigate('VerifikasiPembayaran'); 
+          onPress={() => {
+              // Navigasi ke VerifikasiPembayaran (Pastikan route ini ada di AdminNavigator)
+              // @ts-ignore
+              navigation.navigate('VerifikasiPembayaran', { id_profile, name, email, program_name }); 
           }}
         >
           <Image
-            source={require('../../assets/icons/Vector5.png')} // Ikon panah kanan
+            source={require('../../assets/icons/Vector5.png')}
             style={styles.nextIcon1}
             resizeMode="contain"
           />
@@ -180,7 +359,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     height: 60,
-    backgroundColor: '#DABC4E', // Tambahkan warna latar belakang untuk header agar lebih sesuai
+    backgroundColor: '#DABC4E', 
   },
   waveBackground: {
     width: '100%',
@@ -241,15 +420,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   documentCard: {
-    // Sesuaikan warna dan border card dengan desain Figma
-    backgroundColor: '#F5EFD3', // Latar belakang transparan
+    backgroundColor: '#F5EFD3', 
     borderRadius: 15,
     paddingHorizontal: 15,
     paddingVertical: 10,
     marginBottom: 15,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: '#DABC4E', // Border warna emas
+    borderColor: '#DABC4E', 
   },
   documentHeader: {
     marginBottom: 5,
@@ -257,17 +435,17 @@ const styles = StyleSheet.create({
   documentName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#DABC4E', // Warna teks nama dokumen
+    color: '#DABC4E', 
   },
   documentBody: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Latar belakang putih transparan
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', 
     borderRadius: 10,
     padding: 10,
     marginBottom: 5,
     borderWidth: 1,
-    borderColor: '#C4A962', // Border tipis di documentBody
+    borderColor: '#C4A962', 
   },
   documentTextContainer: {
     flex: 1,
@@ -296,8 +474,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
-
-  // Tombol Next/Lanjut
+  // Style tambahan untuk tombol View
+  viewButton: {
+    padding: 5,
+    marginLeft: 5,
+  },
+  viewIcon: {
+    width: 20,
+    height: 20,
+    tintColor: '#333',
+  },
   nextButton: {
     alignSelf: 'flex-end',
     width: 46,
@@ -313,7 +499,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     borderWidth: 2,
-    borderColor: '#004225', // Warna border disesuaikan
+    borderColor: '#004225', 
   },
   nextIcon1: {
     width: 18,
