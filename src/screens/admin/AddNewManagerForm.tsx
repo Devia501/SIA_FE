@@ -14,28 +14,28 @@ import {
   ActivityIndicator, 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native'; // 📌 Tambah useRoute
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AdminStackParamList } from '../../navigation/AdminNavigator';
 import LinearGradient from 'react-native-linear-gradient';
 import { UserManagement } from '../../services/apiService'; 
+import api from '../../services/api'; // 📌 Pastikan path ini sesuai dengan lokasi api.ts Anda
 
 // ============================================
 // 📌 TYPE DEFINITIONS
 // ============================================
 interface BaseManagerPayload {
-    id_user?: number; // 📌 Tambahan untuk Edit
+    id_user?: number;
     name: string;
     email: string;
     username: string;
-    password?: string; // Optional saat edit
+    password?: string;
     passwordConfirmation?: string;
     noTelepon?: string;
     role: 'manager' | 'admin';
-    isEditMode?: boolean; // 📌 Penanda Edit Mode
+    isEditMode?: boolean;
 }
 
-// Definisi tipe route untuk menerima params
 type AddNewManagerFormRouteProp = RouteProp<{ 
   AddNewManagerForm: { manager?: UserManagement } 
 }, 'AddNewManagerForm'>;
@@ -44,7 +44,7 @@ type AddNewManagerFormNavigationProp = NativeStackNavigationProp<AdminStackParam
 
 const AddNewManagerForm = () => {
   const navigation = useNavigation<AddNewManagerFormNavigationProp>();
-  const route = useRoute<AddNewManagerFormRouteProp>(); // 📌 Hook route
+  const route = useRoute<AddNewManagerFormRouteProp>();
 
   // Cek apakah ada data manager yang dikirim (Edit Mode)
   const managerToEdit = route.params?.manager;
@@ -62,35 +62,29 @@ const AddNewManagerForm = () => {
   // 📌 EFFECT: Pre-fill data jika Edit Mode
   useEffect(() => {
     if (managerToEdit) {
-      navigation.setOptions({ headerTitle: 'Edit Manager' }); // Opsional: Ubah judul header native
+      navigation.setOptions({ headerTitle: 'Edit Manager' });
       
       setNamaLengkap(managerToEdit.name || '');
       setEmail(managerToEdit.email || '');
-      // Username mungkin tidak ada di listUsers response standar, sesuaikan jika ada
-      // Jika backend tidak kirim username di list, form ini mungkin akan kosong username-nya
       setUsername((managerToEdit as any).username || ''); 
       setNoTelepon(managerToEdit.phone_number || '');
-      // Password dikosongkan karena terenkripsi
     }
   }, [managerToEdit, navigation]);
 
-  // 📌 FUNGSI NAVIGASI: Meneruskan data ke SetPermission
-  const handleNextToPermission = () => {
+  // 📌 FUNGSI UTAMA: Handle Submit (Edit atau Create)
+  const handleProcess = async () => {
     // 1. Validasi Input Wajib
     if (!namaLengkap.trim() || !email.trim() || !username.trim()) {
       Alert.alert('Error', 'Nama, Email, dan Username wajib diisi!');
       return;
     }
 
-    // 📌 Validasi Password Khusus
-    // Jika Mode Buat Baru: Password Wajib
-    // Jika Mode Edit: Password Opsional (hanya diisi jika ingin mengganti)
+    // Validasi Password
     if (!isEditMode && !password) {
         Alert.alert('Error', 'Password wajib diisi untuk manager baru!');
         return;
     }
 
-    // Jika password diisi (baik mode baru atau edit), validasi konfirmasi
     if (password || passwordConfirmation) {
         if (password.length < 8) {
             Alert.alert('Error', 'Password minimal 8 karakter!');
@@ -103,27 +97,74 @@ const AddNewManagerForm = () => {
     }
     
     // 2. Siapkan Payload
-    const payload: BaseManagerPayload = {
-      id_user: managerToEdit?.id_user, // Kirim ID jika edit
+    // Gunakan 'any' atau sesuaikan interface agar menerima field snake_case
+    const payload: any = {
+      id_user: managerToEdit?.id_user,
       name: namaLengkap.trim(),
       email: email.trim().toLowerCase(),
       username: username.trim(),
       noTelepon: noTelepon.trim() || undefined,
       role: 'manager',
-      isEditMode: isEditMode, // Kirim flag edit
+      isEditMode: isEditMode,
     };
 
-    // Hanya kirim password jika diisi
-    if (password) {
+    // ⚠️ PERBAIKAN DI SINI:
+    // Hanya kirim field password jika user benar-benar mengisinya
+    if (password && password.trim() !== '') {
         payload.password = password;
-        payload.passwordConfirmation = passwordConfirmation;
+        // Ubah 'passwordConfirmation' menjadi 'password_confirmation' (snake_case)
+        payload.password_confirmation = passwordConfirmation; 
     }
 
-    console.log('📦 Sending Payload to Permission:', payload);
+    // 3. LOGIKA CABANG (EDIT vs CREATE)
+    if (isEditMode) {
+        setIsLoading(true);
+        try {
+            console.log('🔄 Updating Manager:', payload);
+            
+            await api.put(`/admin/users/${managerToEdit?.id_user}`, payload);
 
-    // 3. Navigasi ke SetPermission
-    // @ts-ignore
-    navigation.navigate('SetPermission', payload); 
+            Alert.alert(
+                'Berhasil', 
+                'Data Manager berhasil diperbarui.',
+                [
+                    { 
+                        text: 'OK', 
+                        onPress: () => {
+                            navigation.goBack(); 
+                        } 
+                    }
+                ]
+            );
+
+        } catch (error: any) {
+            console.error('❌ Gagal update manager:', error);
+            // Ambil pesan error spesifik jika ada
+            const errorMessage = error.response?.data?.message || 'Gagal memperbarui data manager.';
+            const validationErrors = error.response?.data?.errors;
+            
+            // Jika ada error validasi spesifik (misal password), tampilkan detailnya
+            let displayMessage = errorMessage;
+            if (validationErrors) {
+                const firstError = Object.values(validationErrors)[0];
+                if (Array.isArray(firstError)) {
+                    displayMessage = firstError[0];
+                }
+            }
+
+            Alert.alert('Gagal', displayMessage as string);
+        } finally {
+            setIsLoading(false);
+        }
+
+    } else {
+        // Untuk Create Baru, kita kembalikan ke format camelCase jika screen selanjutnya butuh camelCase,
+        // TAPI biasanya backend tetap butuh snake_case. 
+        // Agar aman, kirim payload yang sudah disesuaikan di atas.
+        console.log('📦 Sending Payload to Permission:', payload);
+        // @ts-ignore
+        navigation.navigate('SetPermission', payload); 
+    }
   };
 
   const handleCancel = () => {
@@ -156,26 +197,25 @@ const AddNewManagerForm = () => {
                 />
               </TouchableOpacity>
               {!isEditMode && (
-  <Image 
-      source={require('../../assets/icons/gridicons_add.png')} 
-      style={localStyles.lockIcon}
-      resizeMode="contain"
-  />
-)}
+                <Image 
+                    source={require('../../assets/icons/gridicons_add.png')} 
+                    style={localStyles.lockIcon}
+                    resizeMode="contain"
+                />
+              )}
 
-<Text 
-  style={[
-    localStyles.headerTitle, 
-    // 👇 Tambahkan kondisi ini:
-    isEditMode && { 
-      textAlign: 'center', 
-      marginRight: 52, // Menyeimbangkan Back Button (40px) + Margin (12px)
-      left: 0          // Reset posisi 'left' bawaan agar benar-benar tengah
-    }
-  ]}
->
-  {isEditMode ? 'Edit Manager' : 'Tambah Manager Baru'}
-</Text>
+              <Text 
+                style={[
+                  localStyles.headerTitle, 
+                  isEditMode && { 
+                    textAlign: 'center', 
+                    marginRight: 52, 
+                    left: 0          
+                  }
+                ]}
+              >
+                {isEditMode ? 'Edit Manager' : 'Tambah Manager Baru'}
+              </Text>
             </View>
           </ImageBackground>
         </View>
@@ -212,13 +252,13 @@ const AddNewManagerForm = () => {
           <View style={localStyles.fieldContainer}>
             <Text style={localStyles.fieldLabel}>Username (*)</Text>
             <TextInput
-              style={[localStyles.input, isEditMode && { backgroundColor: '#e0e0e0' }]} // Opsional: Visual disable
+              style={[localStyles.input, isEditMode && { backgroundColor: '#e0e0e0' }]} 
               placeholder="manager_username"
               placeholderTextColor="#999"
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
-              editable={!isLoading} // Bisa diubah false jika username tidak boleh diedit
+              editable={!isLoading && !isEditMode} // Username biasanya tidak boleh diedit
             />
           </View>
 
@@ -282,7 +322,7 @@ const AddNewManagerForm = () => {
 
           {/* Action Buttons */}
           <TouchableOpacity 
-            onPress={handleNextToPermission}
+            onPress={handleProcess}
             disabled={isLoading}
           >
             <LinearGradient
